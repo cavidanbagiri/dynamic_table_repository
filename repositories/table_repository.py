@@ -8,6 +8,8 @@ import time
 from fastapi import UploadFile, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from sqlalchemy.sql import text
 
 from db.setup import SessionLocal
@@ -24,7 +26,7 @@ class CreateTableRepository:
 
             company_name, table_name = company_name.strip(), table_name.strip()
 
-            # 1 - Check Table Name and create
+            # 1 - Check Table Name and company
             if not table_name and not company_name:
                 raise HTTPException(status_code=400, detail="Company and Table name are required.")
                 # Validate that names are alphanumeric and can include underscores
@@ -56,11 +58,9 @@ class CreateTableRepository:
                 raise HTTPException(status_code=400, detail=f"Error reading file: {str(e)}")
 
             # 4 - Get All Columns
-            df.columns = df.columns.str.replace(r'[ ./\\-]', '_', regex=True)
-            # df.columns = df.columns.str.replace("'", "''")  # Escape single quotes
-            # columns = df.columns.tolist()
-
+            df.columns = df.columns.str.strip().str.replace(r'[ ./\\-]', '_', regex=True)
             columns = [column.strip() for column in df.columns]
+
             # 5 - Validate Column Names
             self._validate_column_names(columns)
 
@@ -73,7 +73,8 @@ class CreateTableRepository:
 
             # 7 - Insert Table
             try:
-                await self._insert_to_table(session, combine_table_name, df)
+                # await self._insert_bulk_to_table(session, combine_table_name, df)
+                await self.insert_row_by_row(session, combine_table_name, df)
                 # await session.commit()  # Commit after inserting data
             except Exception as e:
                 print(f'..............>>>>>>>>>>>>>>>>>>{str(e)}')
@@ -81,34 +82,11 @@ class CreateTableRepository:
             await session.commit()
             return {'message': 'Table created successfully'}
 
+
     async def _create_table_and_columns(self, session: AsyncSession, table_name: str, columns: list):
         query = f"CREATE TABLE {table_name} (id SERIAL PRIMARY KEY, "
-        query += ", ".join([f"{column} VARCHAR(255) NULL" for column in columns]) + ")"
+        query += ", ".join([f"{column} TEXT NULL" for column in columns]) + ")"
         await session.execute(text(query))
-
-    async def _insert_to_table(self, session, table_name, data):
-
-        start_time = time.time()  # Record the start time
-
-        query = f"INSERT INTO {table_name} ("
-        for column in data.columns:
-            query += f"{column}, "
-        query = query[:-2] + ") VALUES "
-        for index, row in data.iterrows():
-            if index <= 2500:
-                continue
-            elif index >= 2695 and index <= 2695:
-                query += "("
-                for column in data.columns:
-                    query += f"'{str(row[column]).replace("'", "''").strip()}', "
-                query = query[:-2] + "), "
-        query = query[:-2]
-        print(f'query is : \n{query}\n')
-        await session.execute(text(query))
-        end_time = time.time()  # Record the end time
-        duration = end_time - start_time  # Calculate the duration
-        print(f"Insertion operation took {duration:.4f} seconds")  # Print the duration
-
 
     def _validate_column_names(self, columns):
         reserved_keywords = {'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'FROM', 'WHERE', 'JOIN', 'CREATE', 'DROP', 'ALTER',
@@ -128,3 +106,92 @@ class CreateTableRepository:
     def _is_valid_name(self, name: str) -> bool:
         # Regular expression to check if the name is alphanumeric and can include underscores
         return bool(re.match(r'^[A-Za-z0-9_]+$', name))
+
+    async def insert_row_by_row(self, session, table_name, data):
+        start_time = time.time()  # Record the start time
+
+        counter = 0
+        row_length = len(data)
+
+        for index, row in data.iterrows():
+
+            # Convert the row to a dictionary
+            row_data = row.to_dict()
+
+            # Convert all values to strings
+            row_data = {key: str(value) for key, value in row_data.items()}
+
+            # Create an insert query
+            columns = ', '.join(row_data.keys())
+            placeholders = ', '.join([f":{key}" for key in row_data.keys()])
+            query = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})"
+
+            # Execute the insert query
+            try:
+                # async with engine.connect() as connection:
+                await session.execute(text(query), row_data)
+                print(f"Inserted row {index + 1}: {row_data}")
+            except SQLAlchemyError as e:
+                print(f"Error inserting row {index + 1}: {str(e)}")
+
+
+        # for index, row in data.iterrows():
+        #     counter += 1
+        #     if index <= 4136 or index >= 4138:
+        #         continue
+        #     query = f"INSERT INTO {table_name} ("
+        #     for column in data.columns:
+        #         query += f"{column}, "
+        #     query = query[:-2] + ") VALUES ("
+        #
+        #     for column in data.columns:
+        #         if "'" in str(row[column]):
+        #             query += f"'{str(row[column]).replace("'", "''").strip()}', "
+        #         elif ":" in str(row[column]):
+        #             query += f"'{str(row[column]).replace(":", "").strip()}', "
+        #         else:
+        #             query += f"'{str(row[column]).strip()}', "
+        #     query = query[:-2] + ")"
+        #
+        #     await session.execute(text(query))
+        #     await session.commit()
+        #     print(f'{counter} row inserted : \n{query}\n')
+
+
+
+        end_time = time.time()  # Record the end time
+        duration = end_time - start_time  # Calculate the duration
+        print(f"Insertion operation took {duration:.4f} seconds")  # Print the duration
+
+    # Dont Use It
+    async def _insert_bulk_to_table(self, session, table_name, data):
+
+        start_time = time.time()  # Record the start time
+
+        query = f"INSERT INTO {table_name} ("
+        for column in data.columns:
+            query += f"{column}, "
+        query = query[:-2] + ") VALUES "
+        counter = 0
+        row_length = len(data)
+        for index, row in data.iterrows():
+            counter += 1
+            if counter % 100 == 0:
+                print(f"Inserted {counter} rows out of {row_length}")
+            if index == 250:
+                break
+            query += "("
+            for column in data.columns:
+                if "'" in str(row[column]):
+                    query += f"'{str(row[column]).replace("'", "''").strip()}', "
+                elif ":" in str(row[column]):
+                    query += f"'{str(row[column]).replace(":", "").strip()}', "
+                else:
+                    query += f"'{str(row[column]).strip()}', "
+                # query += f"'{str(row[column]).replace("'", "''").strip()}', "
+            query = query[:-2] + "), "
+        query = query[:-2]
+        await session.execute(text(query))
+        end_time = time.time()  # Record the end time
+        duration = end_time - start_time  # Calculate the duration
+        print(f"Insertion operation took {duration:.4f} seconds")  # Print the duration
