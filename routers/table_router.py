@@ -19,3 +19,4 @@ async def create_table(file: UploadFile = File(...), company_name: str = Form(..
         return data
     except HTTPException as e:
         return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+
