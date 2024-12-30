@@ -17,7 +17,7 @@ class CreateTableRepository:
     def __init__(self, db):
         self.db = db
 
-    async def create_table(self, file: UploadFile, company_name: str, table_name: str = None):
+    async def create_table(self, user_id: int, file: UploadFile, company_name: str, table_name: str = None):
 
         async with SessionLocal() as session:
 
@@ -30,7 +30,7 @@ class CreateTableRepository:
                 raise HTTPException(status_code=400,
                                     detail="Company and Table name must be alphanumeric and can include underscores.")
 
-            combine_table_name = f"{company_name.strip()}_{table_name.strip()}"
+            combine_table_name = f"{company_name.strip().lower()}_{table_name.strip().lower()}"
 
             # 1 - Check if table already exists
             query = f"SELECT * FROM information_schema.tables WHERE table_name = '{combine_table_name}'"
@@ -65,17 +65,18 @@ class CreateTableRepository:
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error creating table: {str(e)}")
 
+            # 8 - Create User Table
+            try:
+                await self._create_user_tables(user_id=user_id, table_name=combine_table_name, session=session)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Error creating user table: {str(e)}")
+
             # 7 - Insert Table
             try:
                 await self.insert_row_by_row(session, combine_table_name, df)
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error inserting data: {str(e)}")
 
-            # 8 - Create User Table
-            try:
-                await self._create_user_tables(user_id=None, table_name=combine_table_name, session=session)
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Error creating user table: {str(e)}")
 
             await session.commit()
             return {'message': 'Table created successfully'}
