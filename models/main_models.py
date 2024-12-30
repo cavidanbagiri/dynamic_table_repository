@@ -24,7 +24,7 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     password = Column(String)
 
-    company_id = Column(Integer, ForeignKey("companies.id"))
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=True)
 
     company = relationship("Company", back_populates="users")
     user_tables = relationship("UserTable", back_populates="user")
