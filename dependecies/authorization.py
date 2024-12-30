@@ -15,7 +15,6 @@ class TokenVerifyMiddleware:
     @staticmethod
     def verify_access_token(request: Request):
         headers = dict(request.headers)
-        print(f'the headers are {headers}')
         if headers.get('token'):
             try:
                 payload = jwt.decode(headers['token'], os.getenv('JWT_SECRET_KEY'), algorithms=os.getenv('JWT_ALGORITHM'))

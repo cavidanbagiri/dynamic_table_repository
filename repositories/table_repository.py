@@ -1,8 +1,9 @@
-
+import asyncio
 import re
 import pandas as pd
 
 from fastapi import UploadFile, HTTPException
+from select import select
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
@@ -138,10 +139,17 @@ class FetchTableRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def fetch_table(self, table_name: str, session: AsyncSession):
-        try:
-            query = text(f"SELECT * FROM {table_name}")
-            result = await session.execute(query)
-            return result.fetchall()
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error fetching data: {str(e)}")
+    async def fetch_table(self, user_id: int, table_name: str):
+        async with SessionLocal() as session:
+            try:
+                query = text(f"SELECT * FROM user_tables WHERE user_id = :user_id AND table_name = :table_name")
+                result = await session.execute(query, {"user_id": user_id, "table_name": table_name})
+                table = result.fetchone()
+                if not table:
+                    raise HTTPException(status_code=404, detail="Table not found")
+                query = text(f"SELECT * FROM {table_name}")
+                result = await session.execute(query)
+                data = result.mappings().fetchall()
+                return data
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Error fetching data: {str(e)}")
