@@ -176,3 +176,27 @@ class FetchTableRepository:
                 return data
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error fetching data: {str(e)}")
+
+
+# Execute SQL Query in database
+class ExecuteQueryRepository:
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def execute_query(self, query: str) -> object:
+        try:
+            print(f'Executing query: {query}')  # Log the query being executed
+            result = await self.db.execute(text(query))
+
+            # Check if the result has any rows
+            if result.rowcount == 0:
+                print("No rows returned.")
+                return []  # Return an empty list if no rows are found
+
+            # Use mappings to get all columns
+            temp = result.mappings().all()
+            print(f'coming result is {temp}')  # Log the result
+            return temp
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error executing query: {str(e)}")
