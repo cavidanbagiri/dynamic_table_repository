@@ -3,38 +3,37 @@ import re
 import pandas as pd
 
 from fastapi import UploadFile, HTTPException
-from select import select
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql import text
+from sqlalchemy import select
 
 from db.setup import SessionLocal
 
-from models.main_models import UserTable
+from models.main_models import UserTable, TableDefinition
 
+# Create a new table
 class CreateTableRepository:
 
     def __init__(self, db):
         self.db = db
 
-    async def create_table(self, user_id: int, file: UploadFile, company_name: str, table_name: str = None):
+    async def create_table(self, user_id: int, file: UploadFile, table_status: str, table_description: str, table_name: str = None):
 
         async with SessionLocal() as session:
 
-            company_name, table_name = company_name.strip(), table_name.strip()
-
             # 0 - Check Table Name and company
-            if not table_name and not company_name:
-                raise HTTPException(status_code=400, detail="Company and Table name are required.")
-            if not self._is_valid_name(company_name) or not self._is_valid_name(table_name):
+            if not table_name:
+                raise HTTPException(status_code=400, detail="Table name are required.")
+            if not self._is_valid_name(table_name):
                 raise HTTPException(status_code=400,
-                                    detail="Company and Table name must be alphanumeric and can include underscores.")
+                                    detail="Table name must be alphanumeric and can include underscores.")
 
-            combine_table_name = f"{company_name.strip().lower()}_{table_name.strip().lower()}"
+            define_table_name = f"{table_name.strip().lower()}"
 
             # 1 - Check if table already exists
-            query = f"SELECT * FROM information_schema.tables WHERE table_name = '{combine_table_name}'"
+            query = f"SELECT * FROM information_schema.tables WHERE table_name = '{define_table_name}'"
             result = await session.execute(text(query))
             table_exists = result.fetchone()
             if table_exists:
@@ -60,33 +59,46 @@ class CreateTableRepository:
             # 5 - Validate Column Names
             self._validate_column_names(columns)
 
-            # 6 - Create Table
+            # 6 - Create TableDefinition and Table
+            # 6.0 - Create TableDefinition
             try:
-                await self._create_table_and_columns(session, combine_table_name, columns)
+                table_id = await self._create_table_definition(table_status, table_description, define_table_name, session)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Error creating table definition: {str(e)}")
+
+            # 6.1 - Create Table
+            try:
+                await self._create_table_and_columns(session, define_table_name, columns)
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error creating table: {str(e)}")
 
-            # 8 - Create User Table
-            try:
-                await self._create_user_tables(user_id=user_id, table_name=combine_table_name, session=session)
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Error creating user table: {str(e)}")
-
             # 7 - Insert Table
             try:
-                await self.insert_row_by_row(session, combine_table_name, df)
+                await self.insert_row_by_row(session, define_table_name, df)
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error inserting data: {str(e)}")
+
+            # 8 - Create User Table
+            try:
+                await self._create_user_tables(user_id=user_id, table_id=table_id, session=session)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Error creating user table: {str(e)}")
 
 
             await session.commit()
             return {'message': 'Table created successfully'}
 
-
     async def _create_table_and_columns(self, session: AsyncSession, table_name: str, columns: list):
         query = f"CREATE TABLE {table_name} (id SERIAL PRIMARY KEY, "
         query += ", ".join([f"{column} TEXT NULL" for column in columns]) + ")"
         await session.execute(text(query))
+
+    async def _create_table_definition(self, table_status, table_description, table_name, session: AsyncSession):
+        table_definition = TableDefinition(table_name=table_name, table_status=table_status, table_description=table_description)
+        session.add(table_definition)
+        await session.commit()
+        await session.refresh(table_definition)
+        return table_definition.id
 
     async def insert_row_by_row(self, session, table_name, data):
 
@@ -109,8 +121,8 @@ class CreateTableRepository:
             except SQLAlchemyError as e:
                 print(f"Error inserting row {index + 1}: {str(e)}")
 
-    async def _create_user_tables(self, user_id, table_name: str, session: AsyncSession):
-        data = UserTable(user_id=user_id, table_name=table_name)
+    async def _create_user_tables(self, user_id, table_id: int, session: AsyncSession):
+        data = UserTable(user_id=user_id, table_id=table_id)
         session.add(data)
 
     def _validate_column_names(self, columns):
@@ -133,20 +145,31 @@ class CreateTableRepository:
         return bool(re.match(r'^[A-Za-z0-9_]+$', name))
 
 
-
+# Fetch data from table
 class FetchTableRepository:
 
     def __init__(self, db: AsyncSession):
         self.db = db
 
+
     async def fetch_table(self, user_id: int, table_name: str):
-        async with SessionLocal() as session:
+        async with SessionLocal() as session:  # Ensure SessionLocal is an async session
             try:
-                query = text(f"SELECT * FROM user_tables WHERE user_id = :user_id AND table_name = :table_name")
-                result = await session.execute(query, {"user_id": user_id, "table_name": table_name})
-                table = result.fetchone()
-                if not table:
+                # 1 - Check if table exists and get table id with table name
+                table = await session.execute(
+                    select(TableDefinition.id).where(TableDefinition.table_name == table_name))
+                table_id = table.scalar()
+                if not table_id:
                     raise HTTPException(status_code=404, detail="Table not found")
+
+                # 2 - Check if user is associated with the table
+                query = text("SELECT * FROM user_tables WHERE user_id = :user_id AND table_id = :table_id")
+                result = await session.execute(query, {"user_id": user_id, "table_id": table_id})
+                user_table = result.fetchone()
+                if not user_table:
+                    raise HTTPException(status_code=404, detail="User is not associated with this table")
+
+                # 3 - Fetch data from the specified table
                 query = text(f"SELECT * FROM {table_name}")
                 result = await session.execute(query)
                 data = result.mappings().fetchall()

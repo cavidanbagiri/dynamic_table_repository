@@ -23,7 +23,7 @@ class UserRegisterRepository:
     async def register_user(self, user: UserModel):
         async with SessionLocal() as session:
             user = UserModel(
-                name=user.name,
+                username=user.username,
                 email=user.email,
                 password=self._hash_password(user.password),
             )
@@ -32,7 +32,7 @@ class UserRegisterRepository:
             await session.refresh(user)
             user_data = {
                 "id": user.id,
-                "name": user.name,
+                "username": user.username,
                 "email": user.email
             }
             return user_data
@@ -68,12 +68,12 @@ class UserLoginRepository:
 
             user_data = {
                 "id": user.id,
-                "name": user.name,
+                "username": user.username,
                 "email": user.email
             }
             token_data = {
                 "id": user.id,
-                "name": user.name,
+                "username": user.username,
             }
             new_data = {'access_token': TokenRepository.create_access_token(token_data), 'user': user_data}
             return new_data
