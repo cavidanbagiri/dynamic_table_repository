@@ -13,7 +13,6 @@ router = APIRouter()
 
 @router.post("/register", status_code=201)
 async def register_user(user: RegisterUserSchema, db: AsyncSession = Depends(get_db)):
-
     repository = UserRegisterRepository(db)
     try:
         user = await repository.register_user(user)
