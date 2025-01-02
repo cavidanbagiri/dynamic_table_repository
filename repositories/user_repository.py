@@ -1,4 +1,4 @@
-
+from fastapi import HTTPException
 from sqlalchemy import text, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,9 +62,9 @@ class UserLoginRepository:
             finded_user = await session.execute(text("SELECT * FROM users WHERE email = :email"), {"email": email})
             user = finded_user.mappings().first()
             if not user:
-                return False
+                raise HTTPException(status_code=400, detail="User not found")
             if not self.__verify_password(password, user.password):
-                return False
+                raise HTTPException(status_code=400, detail="Incorrect password")
 
             user_data = {
                 "id": user.id,
@@ -74,8 +74,12 @@ class UserLoginRepository:
             token_data = {
                 "id": user.id,
                 "username": user.username,
+                "email": user.email
             }
-            new_data = {'access_token': TokenRepository.create_access_token(token_data), 'user': user_data}
+            new_data = {
+                'access_token': TokenRepository.create_access_token(token_data),
+                'user': user_data
+            }
             return new_data
 
 
