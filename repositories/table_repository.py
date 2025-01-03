@@ -8,10 +8,40 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql import text
 from sqlalchemy import select
+from sqlalchemy.orm import joinedload, selectinload
 
 from db.setup import SessionLocal
 
 from models.main_models import UserTable, TableDefinition
+
+
+# Fetch all public tables
+class FetchPublicTablesRepository:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def fetch_public_tables(self):
+        async with SessionLocal() as session:
+            data = await session.execute(
+                select(TableDefinition)
+                .options(joinedload(TableDefinition.user_tables).joinedload(UserTable.user))
+                .where(TableDefinition.table_status == "public")
+            )
+            result = data.unique().scalars().all()
+            processed_result = []
+            for table in result:
+                table_info = {
+                    "id": table.id,
+                    "table_name": table.table_name,
+                    "table_status": table.table_status,
+                    "table_description": table.table_description,
+                    "username": table.user_tables[0].user.username,
+                    "email": table.user_tables[0].user.email,
+                }
+                processed_result.append(table_info)
+
+            return processed_result
+            # return result
 
 # Create a new table
 class CreateTableRepository:

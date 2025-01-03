@@ -7,9 +7,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.setup import get_db
 from dependecies.authorization import TokenVerifyMiddleware
-from repositories.table_repository import CreateTableRepository, FetchTableRepository, ExecuteQueryRepository
+from repositories.table_repository import CreateTableRepository, FetchTableRepository, ExecuteQueryRepository, \
+    FetchPublicTablesRepository
 
 router = APIRouter()
+
+# Checked
+@router.get("/fetchpublictables", status_code=200)
+async def fetch_public_tables(db: AsyncSession = Depends(get_db)):
+    repository = FetchPublicTablesRepository(db)
+    data = await repository.fetch_public_tables()
+    return data
+
 
 @router.post("/create")
 async def create_table(file: UploadFile = File(...), table_status: str = Form(...), table_description: str = Form(...), table_name: str = Form(...), db:AsyncSession = Depends(get_db),
@@ -47,18 +56,13 @@ async def sql_query(
 ):
     repository = ExecuteQueryRepository(db)
 
-    print(f'sql_query: {type(sql_query)}')  # Log the incoming SQL query
-
     if user_info:
         try:
-            # Optionally, validate the table_name to prevent SQL injection
-            # For example, you could maintain a whitelist of allowed table names
             data = await repository.execute_query(sql_query)
             return data
         except HTTPException as e:
             return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
         except Exception as e:
-            # Catch any other exceptions and return a 500 error
             return JSONResponse(status_code=500, content={"detail": f"An error occurred: {str(e)}"})
     else:
         return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
