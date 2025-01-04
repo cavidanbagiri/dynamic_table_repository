@@ -20,7 +20,7 @@ if config.config_file_name is not None:
 # target_metadata = mymodel.Base.metadata
 
 from db.setup import Base
-from models.main_models import User, UserTable
+from models.main_models import User, UserTable, TableDefinition, FavoriteTables
 
 target_metadata = Base.metadata
 

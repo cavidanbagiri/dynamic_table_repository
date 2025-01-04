@@ -12,7 +12,7 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from db.setup import SessionLocal
 
-from models.main_models import UserTable, TableDefinition
+from models.main_models import UserTable, TableDefinition, FavoriteTables
 
 
 # Fetch all public tables
@@ -42,6 +42,21 @@ class FetchPublicTablesRepository:
 
             return processed_result
             # return result
+
+
+# Add table to favorites
+class AddFavoriteTableRepository:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def add_favorite_table(self, table_id: int, user_id: int):
+        async with SessionLocal() as session:
+            favorite_table = FavoriteTables(table_id=table_id, user_id=user_id)
+            session.add(favorite_table)
+            await session.commit()
+            await session.refresh(favorite_table)
+            return favorite_table
+
 
 # Create a new table
 class CreateTableRepository:

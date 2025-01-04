@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.setup import get_db
 from dependecies.authorization import TokenVerifyMiddleware
 from repositories.table_repository import CreateTableRepository, FetchTableRepository, ExecuteQueryRepository, \
-    FetchPublicTablesRepository
+    FetchPublicTablesRepository, AddFavoriteTableRepository
 
 router = APIRouter()
 
@@ -18,6 +18,19 @@ async def fetch_public_tables(db: AsyncSession = Depends(get_db)):
     repository = FetchPublicTablesRepository(db)
     data = await repository.fetch_public_tables()
     return data
+
+# Checked
+@router.post("/addtofavorites/{table_id}", status_code=201)
+async def add_to_favorites(table_id: int, db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
+    repository = AddFavoriteTableRepository(db)
+    if user_info:
+        try:
+            data = await repository.add_favorite_table(table_id, user_info.get('id'))
+            return data
+        except HTTPException as e:
+            return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+    else:
+        return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
 
 
 @router.post("/create")

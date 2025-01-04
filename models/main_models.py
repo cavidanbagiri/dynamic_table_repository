@@ -41,3 +41,11 @@ class TableDefinition(Base):
 
     def __repr__(self):
         return f"TableDefinition(table_name={self.table_name}, table_status={self.table_status})"
+
+
+class FavoriteTables(Base):
+    __tablename__ = "favorite_tables"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    table_id = Column(Integer, ForeignKey("table_definitions.id"))
