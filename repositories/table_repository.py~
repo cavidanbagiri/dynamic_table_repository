@@ -28,13 +28,14 @@ class FetchPublicTablesRepository:
             if user_id:
                 FavoriteTablesAlias = aliased(FavoriteTables)
 
-
+           
                 # Execute the query
                 data = await session.execute(
                     select(TableDefinition)
                     .options(
                         joinedload(TableDefinition.user_tables).joinedload(UserTable.user),
                         joinedload(TableDefinition.favorite_tables.of_type(FavoriteTablesAlias))
+                        # Use of_type to specify the alias
                     )
                     .where(
                         and_(

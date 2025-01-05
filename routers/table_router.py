@@ -4,25 +4,41 @@ from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form
 from fastapi.responses import JSONResponse
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional, Union
 
 from db.setup import get_db
 from dependecies.authorization import TokenVerifyMiddleware
 from repositories.table_repository import CreateTableRepository, FetchTableRepository, ExecuteQueryRepository, \
-    FetchPublicTablesRepository, AddFavoriteTableRepository
+    FetchPublicTablesRepository, FavoriteTableRepository
 
 router = APIRouter()
 
-# Checked
+# Checked - Fetch all public tables
 @router.get("/fetchpublictables", status_code=200)
-async def fetch_public_tables(db: AsyncSession = Depends(get_db)):
+async def fetch_public_tables(user_id: Optional[int] = None, db: AsyncSession = Depends(get_db)):
+
     repository = FetchPublicTablesRepository(db)
-    data = await repository.fetch_public_tables()
+    data = await repository.fetch_public_tables(user_id=user_id)
     return data
 
-# Checked
+
+# Checked - Fetch all Favorite tables
+@router.get("/fetchfavoritetables", status_code=200)
+async def fetch_favorite_tables(db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
+    repository = FavoriteTableRepository(db)
+    if user_info:
+        try:
+            data = await repository.fetch_favorite_tables(user_info.get('id'))
+            return data
+        except HTTPException as e:
+            return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+    else:
+        return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
+
+# Checked - Add table to favorites
 @router.post("/addtofavorites/{table_id}", status_code=201)
 async def add_to_favorites(table_id: int, db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
-    repository = AddFavoriteTableRepository(db)
+    repository = FavoriteTableRepository(db)
     if user_info:
         try:
             data = await repository.add_favorite_table(table_id, user_info.get('id'))
@@ -31,6 +47,23 @@ async def add_to_favorites(table_id: int, db: AsyncSession = Depends(get_db), us
             return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
     else:
         return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
+
+# Checked - Delete table from favorites
+@router.post("/deletefromfavorites/{table_id}", status_code=201)
+async def delete_from_favorites(table_id: int, db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
+    repository = FavoriteTableRepository(db)
+    if user_info:
+        try:
+            data = await repository.delete_favorite_table(table_id, user_info.get('id'))
+            return data
+        except HTTPException as e:
+            return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+    else:
+        return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
+
+
+
+
 
 
 @router.post("/create")

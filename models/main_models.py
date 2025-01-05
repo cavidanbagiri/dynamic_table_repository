@@ -13,6 +13,7 @@ class User(Base):
     image_url = Column(String, nullable=True)
 
     user_tables = relationship("UserTable", back_populates="user")
+    favorite_tables = relationship("FavoriteTables", back_populates="user")
 
     def __repr__(self):
         return f"User(name={self.username}, email={self.email})"
@@ -26,7 +27,12 @@ class UserTable(Base):
     table_id = Column(Integer, ForeignKey("table_definitions.id"))
 
     user = relationship("User", back_populates="user_tables")
+
     table_definition = relationship("TableDefinition", back_populates="user_tables")
+
+
+    def __repr__(self):
+        return f"UserTable(user_id={self.user_id}, table_id={self.table_id})"
 
 
 class TableDefinition(Base):
@@ -38,6 +44,7 @@ class TableDefinition(Base):
     table_description = Column(Text)
 
     user_tables = relationship("UserTable", back_populates="table_definition")
+    favorite_tables = relationship("FavoriteTables", back_populates="table")
 
     def __repr__(self):
         return f"TableDefinition(table_name={self.table_name}, table_status={self.table_status})"
@@ -49,3 +56,6 @@ class FavoriteTables(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     table_id = Column(Integer, ForeignKey("table_definitions.id"))
+
+    user = relationship("User", back_populates="favorite_tables")
+    table = relationship("TableDefinition", back_populates="favorite_tables")
