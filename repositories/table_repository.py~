@@ -28,14 +28,13 @@ class FetchPublicTablesRepository:
             if user_id:
                 FavoriteTablesAlias = aliased(FavoriteTables)
 
-           
+
                 # Execute the query
                 data = await session.execute(
                     select(TableDefinition)
                     .options(
                         joinedload(TableDefinition.user_tables).joinedload(UserTable.user),
                         joinedload(TableDefinition.favorite_tables.of_type(FavoriteTablesAlias))
-                        # Use of_type to specify the alias
                     )
                     .where(
                         and_(
@@ -53,11 +52,12 @@ class FetchPublicTablesRepository:
                 for table in result:
                     table_info = {
                         "id": table.id,
-                        "table_name": table.table_name,
+                        "table_name": table.table_name.replace('_', ' ').title(),
                         "table_status": table.table_status,
                         "table_description": table.table_description,
                         "username": table.user_tables[0].user.username,
                         "email": table.user_tables[0].user.email,
+                        "created_at": table.created_at
                     }
                     processed_result.append(table_info)
                 return processed_result
@@ -73,11 +73,12 @@ class FetchPublicTablesRepository:
                 for table in result:
                     table_info = {
                         "id": table.id,
-                        "table_name": table.table_name,
+                        "table_name": table.table_name.replace('_', ' ').title(),
                         "table_status": table.table_status,
                         "table_description": table.table_description,
                         "username": table.user_tables[0].user.username,
                         "email": table.user_tables[0].user.email,
+                        "created_at": table.created_at
                     }
                     processed_result.append(table_info)
                 return processed_result

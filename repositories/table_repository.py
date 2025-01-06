@@ -52,11 +52,12 @@ class FetchPublicTablesRepository:
                 for table in result:
                     table_info = {
                         "id": table.id,
-                        "table_name": table.table_name,
+                        "table_name": table.table_name.replace('_', ' ').title(),
                         "table_status": table.table_status,
                         "table_description": table.table_description,
                         "username": table.user_tables[0].user.username,
                         "email": table.user_tables[0].user.email,
+                        "created_at": table.created_at
                     }
                     processed_result.append(table_info)
                 return processed_result
@@ -72,11 +73,12 @@ class FetchPublicTablesRepository:
                 for table in result:
                     table_info = {
                         "id": table.id,
-                        "table_name": table.table_name,
+                        "table_name": table.table_name.replace('_', ' ').title(),
                         "table_status": table.table_status,
                         "table_description": table.table_description,
                         "username": table.user_tables[0].user.username,
                         "email": table.user_tables[0].user.email,
+                        "created_at": table.created_at
                     }
                     processed_result.append(table_info)
                 return processed_result
@@ -169,7 +171,7 @@ class FavoriteTableRepository:
             for table in result:
                 table_info = {
                     "id": table.id,
-                    "table_name": table.table_name,
+                    "table_name": table.table_name.replace('_', ' ').title(),
                     "table_status": table.table_status,
                     "table_description": table.table_description,
                     "username": table.user_tables[0].user.username,
