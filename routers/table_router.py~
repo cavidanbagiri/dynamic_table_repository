@@ -69,6 +69,7 @@ async def delete_from_favorites(table_id: int, db: AsyncSession = Depends(get_db
 @router.post("/createtable", status_code=201)
 async def create_table(file: UploadFile = File(...), table_status: str = Form(...), table_description: str = Form(...), table_name: str = Form(...), db:AsyncSession = Depends(get_db),
                        user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
+    print(f'file is {file}')
     if user_info :
         repository = CreateTableRepository(db)
         try:
