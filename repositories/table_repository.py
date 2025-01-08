@@ -53,6 +53,7 @@ class FetchPublicTablesRepository:
                     table_info = {
                         "id": table.id,
                         "table_name": table.table_name.replace('_', ' ').title(),
+                        "original_table_name": table.table_name,
                         "table_status": table.table_status,
                         "table_description": table.table_description,
                         "username": table.user_tables[0].user.username,
@@ -74,6 +75,7 @@ class FetchPublicTablesRepository:
                     table_info = {
                         "id": table.id,
                         "table_name": table.table_name.replace('_', ' ').title(),
+                        "original_table_name": table.table_name,
                         "table_status": table.table_status,
                         "table_description": table.table_description,
                         "username": table.user_tables[0].user.username,
@@ -121,7 +123,8 @@ class FavoriteTableRepository:
 
             table_info = {
                 "id": result.id,
-                "table_name": result.table_name,
+                "table_name": result.table_name.replace('_', ' ').title(),
+                "original_table_name": result.table_name,
                 "table_status": result.table_status,
                 "table_description": result.table_description,
                 "username": result.user_tables[0].user.username,
@@ -172,6 +175,7 @@ class FavoriteTableRepository:
                 table_info = {
                     "id": table.id,
                     "table_name": table.table_name.replace('_', ' ').title(),
+                    "original_table_name": table.table_name,
                     "table_status": table.table_status,
                     "table_description": table.table_description,
                     "username": table.user_tables[0].user.username,
@@ -326,23 +330,34 @@ class FetchTableRepository:
             try:
                 # 1 - Check if table exists and get table id with table name
                 table = await session.execute(
-                    select(TableDefinition.id).where(TableDefinition.table_name == table_name))
-                table_id = table.scalar()
-                if not table_id:
+                    select(TableDefinition).where(TableDefinition.table_name == table_name))
+
+                founded_table = table.scalars().first()
+
+                # 2 - Check if table not available, raise error
+                if not founded_table:
                     raise HTTPException(status_code=404, detail="Table not found")
 
-                # 2 - Check if user is associated with the table
-                query = text("SELECT * FROM user_tables WHERE user_id = :user_id AND table_id = :table_id")
-                result = await session.execute(query, {"user_id": user_id, "table_id": table_id})
-                user_table = result.fetchone()
-                if not user_table:
-                    raise HTTPException(status_code=404, detail="User is not associated with this table")
+                # 3 - Check if table is public
+                if founded_table and founded_table.table_status == 'public':
+                    query = text(f"SELECT * FROM {table_name} limit 100")
+                    result = await session.execute(query)
+                    data = result.mappings().fetchall()
+                    return data
+                else:
+                    # 4 - Check if user is associated with the table
+                    query = text("SELECT * FROM user_tables WHERE user_id = :user_id AND table_id = :table_id")
+                    result = await session.execute(query, {"user_id": user_id, "table_id": founded_table.id})
+                    user_table = result.fetchone()
+                    if not user_table:
+                        raise HTTPException(status_code=404, detail="User is not associated with this table")
 
-                # 3 - Fetch data from the specified table
-                query = text(f"SELECT * FROM {table_name}")
-                result = await session.execute(query)
-                data = result.mappings().fetchall()
-                return data
+                    # 5 - Fetch data from the specified table
+                    query = text(f"SELECT * FROM {table_name} limit 100")
+                    result = await session.execute(query)
+                    data = result.mappings().fetchall()
+                    return data
+
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error fetching data: {str(e)}")
 

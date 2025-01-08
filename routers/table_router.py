@@ -65,7 +65,7 @@ async def delete_from_favorites(table_id: int, db: AsyncSession = Depends(get_db
 
 
 
-# Checked for file, but create from manual, doesnt ready
+# Checked
 @router.post("/createtable", status_code=201)
 async def create_table(file: UploadFile = File(...), table_status: str = Form(...), table_description: str = Form(...), table_name: str = Form(...), db:AsyncSession = Depends(get_db),
                        user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
@@ -80,7 +80,7 @@ async def create_table(file: UploadFile = File(...), table_status: str = Form(..
         return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
 
 
-
+# Working On
 @router.get("/fetch/{table_name}")
 async def fetch_table(table_name: str, db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
     repository = FetchTableRepository(db)
