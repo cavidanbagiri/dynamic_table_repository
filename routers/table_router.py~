@@ -100,7 +100,10 @@ async def filter_table_by_headers(table_name: str, request: Request, db: AsyncSe
     repository = FetchTableWithHeaderFilterRepository(db)
     if user_info:
         try:
+
             query_params = request.query_params
+
+            # Convert query parameters to a regular dictionary if needed
             query_dict = dict(query_params)
             data = await repository.fetch_table_with_header(user_id=user_info.get('id'), table_name=table_name, params=query_dict)
             return data

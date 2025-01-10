@@ -394,7 +394,7 @@ class FetchTableWithHeaderFilterRepository:
         query = ''
 
         for key, value in params.items():
-            query += f" AND {key} ILIKE '{value}'"
+            query += f" AND {key} = '{value}'"
 
         query = f"SELECT * FROM {table_name} WHERE 1=1 {query} limit 100"
 
