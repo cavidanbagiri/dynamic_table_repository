@@ -3,14 +3,15 @@ import asyncio
 import re
 import pandas as pd
 
-from typing import Optional
+from typing import Optional, List
 
 from fastapi import UploadFile, HTTPException
+from pandas.io.sql import execute
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql import text
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, MetaData, Table
 from sqlalchemy.orm import joinedload, aliased
 
 from db.setup import SessionLocal
@@ -28,7 +29,6 @@ class FetchPublicTablesRepository:
 
             if user_id:
                 FavoriteTablesAlias = aliased(FavoriteTables)
-
 
                 # Execute the query
                 data = await session.execute(
@@ -183,7 +183,6 @@ class FavoriteTableRepository:
                     "email": table.user_tables[0].user.email,
                 }
                 processed_result.append(table_info)
-
             return processed_result
 
 
@@ -328,6 +327,7 @@ class FetchTableRepository:
 
     async def fetch_table(self, user_id: int, table_name: str):
         async with SessionLocal() as session:  # Ensure SessionLocal is an async session
+            start_time = time.time()
             try:
                 # 1 - Check if table exists and get table id with table name
                 table = await session.execute(
@@ -341,7 +341,7 @@ class FetchTableRepository:
 
                 # 3 - Check if table is public
                 if founded_table and founded_table.table_status == 'public':
-                    query = text(f"SELECT * FROM {table_name} limit 100")
+                    query = text(f"SELECT * FROM {table_name}")
                     result = await session.execute(query)
                     data = result.mappings().fetchall()
 
@@ -349,12 +349,20 @@ class FetchTableRepository:
                     column_size = await session.execute(text(f"SELECT COUNT(*) FROM information_schema.columns WHERE table_name = '{table_name}'"))
                     table_size = await session.execute(text(f"SELECT pg_size_pretty(pg_total_relation_size('{table_name}'))"))
 
+                    # Fetching column names
+                    headers = await self.fetch_columns(table_name)
+
+
+                    execution_time = time.time() - start_time
+
                     return {
-                        "data": data,
+                        "data": data[:100],
                         "total_rows": row_size.scalar(),
                         "total_columns": column_size.scalar(),
                         "table_size": table_size.scalar(),
-                        "original_table_name": table_name
+                        "original_table_name": table_name,
+                        "execution_time": execution_time.__round__(4),
+                        "headers": headers
                     }
                 else:
                     # 4 - Check if user is associated with the table
@@ -365,23 +373,40 @@ class FetchTableRepository:
                         raise HTTPException(status_code=404, detail="User is not associated with this table")
 
                     # 5 - Fetch data from the specified table
-                    query = text(f"SELECT * FROM {table_name} limit 100")
+                    query = text(f"SELECT * FROM {table_name}")
                     result = await session.execute(query)
                     data = result.mappings().fetchall()
                     row_size = await session.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
                     column_size = await session.execute(text(f"SELECT COUNT(*) FROM information_schema.columns WHERE table_name = '{table_name}'"))
                     table_size = await session.execute(text(f"SELECT pg_size_pretty(pg_total_relation_size('{table_name}'))"))
 
+                    # Fetching column names
+                    headers = await self.fetch_columns(table_name)
+
+                    execution_time = time.time() - start_time
+
                     return {
-                        "data": data,
+                        "data": data[:100],
                         "total_rows": row_size.scalar(),
                         "total_columns": column_size.scalar(),
                         "table_size": table_size.scalar(),
-                        "original_table_name": table_name
+                        "original_table_name": table_name,
+                        "execution_time": execution_time.__round__(4),
+                        "headers": headers
                     }
 
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error fetching data: {str(e)}")
+
+    async def fetch_columns(self, table_name: str, schema: str = 'public') -> List[str]:
+        query = """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = :table_name AND table_schema = :schema;
+        """
+        result = await self.db.execute(text(query), {"table_name": table_name, "schema": schema})
+        columns = [row[0] for row in result.fetchall()]  # Fetch all column names
+        return columns
 
 
 # Fetch data from table with header query
@@ -412,33 +437,29 @@ class FetchTableWithHeaderFilterRepository:
         # Fetch the results
         temp = data.mappings().fetchall()
 
+        # Fetching column names
+        headers = await self.fetch_columns(table_name)
+
+
         execution_time = time.time() - start_time
+
         # Return the results
         return {
             "data": temp[:100],  # Limit to 100 results
             "total_rows": len(temp),  # Total rows fetched
             "execution_time": execution_time.__round__(4),  # Execution time
+            "headers": headers
         }
 
-        # My Code
-        # query = ''
-        #
-        # for key, value in params.items():
-        #     query += f" AND {key} ILIKE '%{value}%'"
-        #
-        # query = f"SELECT * FROM {table_name} WHERE 1=1 {query}"
-        # data = await self.db.execute(text(query))
-        # temp = data.mappings().fetchall()
-        # if len(temp) <= 100:
-        #     return {
-        #         "data": temp,
-        #         "total_rows": len(temp)
-        #     }
-        # else:
-        #     return {
-        #         "data": temp[:100],
-        #         "total_rows": len(temp)
-        #     }
+    async def fetch_columns(self, table_name: str, schema: str = 'public') -> List[str]:
+        query = """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = :table_name AND table_schema = :schema;
+        """
+        result = await self.db.execute(text(query), {"table_name": table_name, "schema": schema})
+        columns = [row[0] for row in result.fetchall()]  # Fetch all column names
+        return columns
 
 # Execute SQL Query in database
 class ExecuteQueryRepository:
