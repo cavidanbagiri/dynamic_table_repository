@@ -1,3 +1,4 @@
+import time
 import asyncio
 import re
 import pandas as pd
@@ -390,19 +391,54 @@ class FetchTableWithHeaderFilterRepository:
         self.db = db
 
     async def fetch_table_with_header(self, user_id: int, table_name: str, params: dict):
+        start_time = time.time()
+        # Start building the query
+        query = f"SELECT * FROM {table_name} WHERE 1=1"
+        filters = []
+        values = []
 
-        query = ''
-
+        # Build the filter conditions
         for key, value in params.items():
-            query += f" AND {key} ILIKE '{value}'"
+            filters.append(f"{key} ILIKE :{key}")
+            values.append((key, f"%{value}%"))
 
-        query = f"SELECT * FROM {table_name} WHERE 1=1 {query} limit 100"
+        # Add filters to the query if any
+        if filters:
+            query += " AND " + " AND ".join(filters)
 
-        print(f'query is {query}')
-        print(f'params are {params} {type(params)}')
+        # Execute the query with parameters
+        data = await self.db.execute(text(query), dict(values))
 
-        return params
+        # Fetch the results
+        temp = data.mappings().fetchall()
 
+        execution_time = time.time() - start_time
+        # Return the results
+        return {
+            "data": temp[:100],  # Limit to 100 results
+            "total_rows": len(temp),  # Total rows fetched
+            "execution_time": execution_time.__round__(4),  # Execution time
+        }
+
+        # My Code
+        # query = ''
+        #
+        # for key, value in params.items():
+        #     query += f" AND {key} ILIKE '%{value}%'"
+        #
+        # query = f"SELECT * FROM {table_name} WHERE 1=1 {query}"
+        # data = await self.db.execute(text(query))
+        # temp = data.mappings().fetchall()
+        # if len(temp) <= 100:
+        #     return {
+        #         "data": temp,
+        #         "total_rows": len(temp)
+        #     }
+        # else:
+        #     return {
+        #         "data": temp[:100],
+        #         "total_rows": len(temp)
+        #     }
 
 # Execute SQL Query in database
 class ExecuteQueryRepository:
