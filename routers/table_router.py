@@ -9,7 +9,7 @@ from typing import Optional, Union, Dict, Any
 from db.setup import get_db
 from dependecies.authorization import TokenVerifyMiddleware
 from repositories.table_repository import CreateTableRepository, FetchTableRepository, ExecuteQueryRepository, \
-    FetchPublicTablesRepository, FavoriteTableRepository, FetchTableWithHeaderFilterRepository
+    FetchPublicTablesRepository, FavoriteTableRepository, FetchTableWithHeaderFilterRepository, FetchMyTablesRepository
 
 router = APIRouter()
 
@@ -20,6 +20,20 @@ async def fetch_public_tables(user_id: Optional[int] = None, db: AsyncSession = 
     repository = FetchPublicTablesRepository(db)
     data = await repository.fetch_public_tables(user_id=user_id)
     return data
+
+
+# Checked - Fetch all my tables
+@router.get("/fetchmytables", status_code=200)
+async def fetch_my_tables(db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
+    repository = FetchMyTablesRepository(db)
+    if user_info:
+        try:
+            data = await repository.fetch_my_tables(user_info.get('id'))
+            return data
+        except HTTPException as e:
+            return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+    else:
+        return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
 
 
 # Checked - Fetch all Favorite tables
@@ -34,6 +48,7 @@ async def fetch_favorite_tables(db: AsyncSession = Depends(get_db), user_info = 
             return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
     else:
         return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
+
 
 # Checked - Add table to favorites
 @router.post("/addtofavorites/{table_id}", status_code=201)
@@ -94,7 +109,7 @@ async def fetch_table(table_name: str, db: AsyncSession = Depends(get_db), user_
         return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
 
 
-# Working on
+# Checked
 @router.get("/filter/{table_name}", status_code=200)
 async def filter_table_by_headers(table_name: str, request: Request, db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
     repository = FetchTableWithHeaderFilterRepository(db)

@@ -130,7 +130,6 @@ class FetchMyTablesRepository:
 
             return result_list
 
-
 # Add table to favorites
 class FavoriteTableRepository:
 
