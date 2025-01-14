@@ -514,17 +514,26 @@ class ExecuteQueryRepository:
 
     async def execute_query(self, query: str) -> object:
         try:
-            print(f'Executing query: {query}')  # Log the query being executed
+            start_time = time.time()
             result = await self.db.execute(text(query))
 
             # Check if the result has any rows
             if result.rowcount == 0:
-                print("No rows returned.")
                 return []  # Return an empty list if no rows are found
 
             # Use mappings to get all columns
             temp = result.mappings().all()
-            print(f'coming result is {temp}')  # Log the result
-            return temp
+
+            headers = []
+            for key in temp[0].keys():
+                headers.append(key)
+
+            execution_time = time.time() - start_time
+            return {
+                "data": temp[:100],  # Limit to 100 results
+                "total_rows": len(temp),  # Total rows fetched
+                "execution_time": execution_time.__round__(4),
+                "headers": headers
+            }
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error executing query: {str(e)}")
