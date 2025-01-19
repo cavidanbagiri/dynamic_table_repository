@@ -5,6 +5,7 @@ import pandas as pd
 
 from typing import Optional, List
 
+import sqlparse
 from fastapi import UploadFile, HTTPException
 from pandas.io.sql import execute
 
@@ -514,7 +515,14 @@ class ExecuteQueryRepository:
 
     async def execute_query(self, query: str) -> object:
         try:
+
+            if not self.is_valid_sql(query):
+                print('................here works')
+                raise HTTPException(status_code=400, detail="Invalid SQL query")
+
+            print('................another works')
             start_time = time.time()
+            print(f'execute comands is \n{query}\n')
             result = await self.db.execute(text(query))
 
             # Check if the result has any rows
@@ -524,11 +532,25 @@ class ExecuteQueryRepository:
             # Use mappings to get all columns
             temp = result.mappings().all()
 
+            headers = []
+            for key in temp[0].keys():
+                headers.append(key)
+
             execution_time = time.time() - start_time
             return {
                 "data": temp[:100],  # Limit to 100 results
                 "total_rows": len(temp),  # Total rows fetched
-                "execution_time": execution_time.__round__(4)
+                "execution_time": execution_time.__round__(4),
+                "headers": headers
             }
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error executing query: {str(e)}")
+
+    def is_valid_sql(self, query: str) -> bool:
+        try:
+            # Parse the SQL query
+            parsed = sqlparse.parse(query)
+            # Check if the parsed result is not empty
+            return len(parsed) > 0
+        except HTTPException as e:
+            return False

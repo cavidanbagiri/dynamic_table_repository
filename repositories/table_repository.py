@@ -5,6 +5,7 @@ import pandas as pd
 
 from typing import Optional, List
 
+import sqlparse
 from fastapi import UploadFile, HTTPException
 from pandas.io.sql import execute
 
@@ -514,6 +515,10 @@ class ExecuteQueryRepository:
 
     async def execute_query(self, query: str) -> object:
         try:
+
+            if not self.is_valid_sql(query):
+                raise HTTPException(status_code=400, detail="Invalid SQL query")
+
             start_time = time.time()
             result = await self.db.execute(text(query))
 
@@ -537,3 +542,10 @@ class ExecuteQueryRepository:
             }
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error executing query: {str(e)}")
+
+    def is_valid_sql(self, query: str) -> bool:
+        try:
+            parsed = sqlparse.parse(query)
+            return len(parsed) > 0
+        except HTTPException as e:
+            return False
