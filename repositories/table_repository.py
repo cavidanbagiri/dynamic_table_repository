@@ -93,39 +93,23 @@ class FetchMyTablesRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    # async def fetch_my_tables(self, user_id: int):
-    #     async with SessionLocal() as session:
-    #
-    #         data = await session.execute(
-    #             select(TableDefinition.table_name, TableDefinition.id, TableDefinition.table_status)
-    #             .options(joinedload(TableDefinition.user_tables).joinedload(UserTable.user))
-    #             .where(UserTable.user_id == user_id)
-    #         )
-    #         print('data is........................................................................................................................', data)
-    #
-    #         result = data.unique().scalars().all()
-    #         print(f'result is............ {result}')
-    #         return result
-
     async def fetch_my_tables(self, user_id: int):
         async with SessionLocal() as session:
 
-            query = (
-                select(TableDefinition.id, TableDefinition.table_name, TableDefinition.table_status)
-                .where(UserTable.user_id == user_id)
-            )
+            data = await session.execute(select(UserTable)
+                .options(joinedload(UserTable.table_definition))
+                .where(UserTable.user_id == user_id))
 
-            data = await session.execute(query)
-            result = data.unique().mappings().all()
+
+            result = data.mappings().all()
 
             result_list = []
             for i in result:
+                table_name = i["UserTable"].table_definition.table_name
                 result_list.append(
                     {
-                        "id": i["id"],
-                        "table_name": i["table_name"].replace('_', ' ').title(),
-                        "original_table_name": i["table_name"],
-                        "table_status": i["table_status"]
+                        "table_name": table_name.replace('_', ' ').title(),
+                        "original_table_name": table_name,
                     }
                 )
 

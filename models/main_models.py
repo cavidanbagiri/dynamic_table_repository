@@ -39,7 +39,7 @@ class UserTable(Base):
 
 
     def __repr__(self):
-        return f"UserTable(user_id={self.user_id}, table_id={self.table_id})"
+        return f"UserTable(user_id={self.user_id}, table_id={self.table_id}, table_definition={self.table_definition})"
 
 
 class TableDefinition(Base):
