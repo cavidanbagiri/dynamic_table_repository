@@ -1,3 +1,4 @@
+
 import time
 import asyncio
 import re
@@ -10,7 +11,7 @@ from fastapi import UploadFile, HTTPException
 from pandas.io.sql import execute
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, ProgrammingError
 from sqlalchemy.sql import text
 from sqlalchemy import select, and_, or_, MetaData, Table
 from sqlalchemy.orm import joinedload, aliased, selectinload
@@ -240,7 +241,6 @@ class CreateTableRepository:
             table_exists = result.fetchone()
             if table_exists:
                 raise HTTPException(status_code=400, detail="Table already exists.")
-
             # 2 - Check Table is csv or xlsx
             if not file.filename.endswith(('.csv', '.xlsx')):
                 raise HTTPException(status_code=400, detail="Invalid file type. Only .csv and .xlsx files are accepted.")
@@ -271,29 +271,31 @@ class CreateTableRepository:
             # 6.1 - Create Table
             try:
                 await self._create_table_and_columns(session, define_table_name, columns)
+            # except Exception as e:
+            except ProgrammingError as e:
+                await self._delete_table_definition(table_id)
+                raise HTTPException(status_code=500, detail=f"Error creating table: {str(e)}")
             except Exception as e:
+                await self._delete_table_definition(table_id)
                 raise HTTPException(status_code=500, detail=f"Error creating table: {str(e)}")
 
             # 7 - Insert Table
             try:
                 await self.insert_row_by_row(session, define_table_name, df)
             except Exception as e:
+                await self._delete_table_definition(table_id)
                 raise HTTPException(status_code=500, detail=f"Error inserting data: {str(e)}")
 
             # 8 - Create User Table
             try:
                 await self._create_user_tables(user_id=user_id, table_id=table_id, session=session)
             except Exception as e:
+                await self._delete_table_definition(table_id)
                 raise HTTPException(status_code=500, detail=f"Error creating user table: {str(e)}")
 
 
             await session.commit()
             return {'message': 'Table created successfully'}
-
-    async def _create_table_and_columns(self, session: AsyncSession, table_name: str, columns: list):
-        query = f"CREATE TABLE {table_name} (id SERIAL PRIMARY KEY, "
-        query += ", ".join([f"{column} TEXT NULL" for column in columns]) + ")"
-        await session.execute(text(query))
 
     async def _create_table_definition(self, table_status, table_description, table_name, session: AsyncSession):
         table_definition = TableDefinition(table_name=table_name, table_status=table_status, table_description=table_description)
@@ -301,6 +303,18 @@ class CreateTableRepository:
         await session.commit()
         await session.refresh(table_definition)
         return table_definition.id
+
+    async def _delete_table_definition(self, table_id):
+        async with SessionLocal() as session:
+            table_definition = await session.execute(select(TableDefinition).where(TableDefinition.id == table_id))
+            table_definition = table_definition.scalars().first()
+            await session.delete(table_definition)
+            await session.commit()
+
+    async def _create_table_and_columns(self, session: AsyncSession, table_name: str, columns: list):
+        query = f"CREATE TABLE {table_name} (id SERIAL PRIMARY KEY, "
+        query += ", ".join([f"{column} TEXT NULL" for column in columns]) + ")"
+        await session.execute(text(query))
 
     async def insert_row_by_row(self, session, table_name, data):
 
