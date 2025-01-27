@@ -15,6 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError, ProgrammingError
 from sqlalchemy.sql import text
 from sqlalchemy import select, and_, or_, MetaData, Table
 from sqlalchemy.orm import joinedload, aliased, selectinload
+from unicodedata import category
 
 from db.setup import SessionLocal
 
@@ -59,6 +60,7 @@ class FetchPublicTablesRepository:
                         "original_table_name": table.table_name,
                         "table_status": table.table_status,
                         "table_description": table.table_description,
+                        "table_category": table.category,
                         "username": table.user_tables[0].user.username,
                         "email": table.user_tables[0].user.email,
                         "created_at": table.created_at
@@ -222,7 +224,7 @@ class CreateTableRepository:
     def __init__(self, db):
         self.db = db
 
-    async def create_table(self, user_id: int, file: UploadFile, table_status: str, table_description: str, table_name: str = None):
+    async def create_table(self, user_id: int, file: UploadFile, table_status: str, table_description: str, table_name: str = None, table_category: str = None):
 
         async with SessionLocal() as session:
 
@@ -236,23 +238,14 @@ class CreateTableRepository:
             define_table_name = f"{table_name.strip().lower()}"
 
             # 1 - Check if table already exists
-            query = f"SELECT * FROM information_schema.tables WHERE table_name = '{define_table_name}'"
-            result = await session.execute(text(query))
-            table_exists = result.fetchone()
-            if table_exists:
-                raise HTTPException(status_code=400, detail="Table already exists.")
+            await self._check_table_already_exists(define_table_name, session)
+
             # 2 - Check Table is csv or xlsx
             if not file.filename.endswith(('.csv', '.xlsx')):
                 raise HTTPException(status_code=400, detail="Invalid file type. Only .csv and .xlsx files are accepted.")
 
             # 3 - Read the file into a DataFrame
-            try:
-                if file.filename.endswith('.csv'):
-                    df = pd.read_csv(file.file)
-                else:
-                    df = pd.read_excel(file.file)
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Error reading file: {str(e)}")
+            df = self._read_the_file(file)
 
             # 4 - Get All Columns
             df.columns = df.columns.str.strip().str.replace(r'[ ./\\-]', '_', regex=True)
@@ -264,7 +257,7 @@ class CreateTableRepository:
             # 6 - Create TableDefinition and Table
             # 6.0 - Create TableDefinition
             try:
-                table_id = await self._create_table_definition(table_status, table_description, define_table_name, session)
+                table_id = await self._create_table_definition(table_status, table_description, define_table_name, table_category, session = session)
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error creating table definition: {str(e)}")
 
@@ -297,8 +290,28 @@ class CreateTableRepository:
             await session.commit()
             return {'message': 'Table created successfully'}
 
-    async def _create_table_definition(self, table_status, table_description, table_name, session: AsyncSession):
-        table_definition = TableDefinition(table_name=table_name, table_status=table_status, table_description=table_description)
+    # Check table name is already exists
+    async def _check_table_already_exists(self, define_table_name, session):
+
+        query = f"SELECT * FROM information_schema.tables WHERE table_name = '{define_table_name}'"
+        result = await session.execute(text(query))
+        table_exists = result.fetchone()
+        if table_exists:
+            raise HTTPException(status_code=400, detail="Table already exists.")
+
+    # Read the file into a DataFrame
+    def _read_the_file(self, file):
+        try:
+            if file.filename.endswith('.csv'):
+                df = pd.read_csv(file.file)
+            else:
+                df = pd.read_excel(file.file)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Error reading file: {str(e)}")
+        return df
+
+    async def _create_table_definition(self, table_status, table_description, table_name, table_category, session: AsyncSession):
+        table_definition = TableDefinition(table_name=table_name, table_status=table_status, table_description=table_description, category=table_category)
         session.add(table_definition)
         await session.commit()
         await session.refresh(table_definition)

@@ -82,12 +82,13 @@ async def delete_from_favorites(table_id: int, db: AsyncSession = Depends(get_db
 
 # Checked
 @router.post("/createtable", status_code=201)
-async def create_table(file: UploadFile = File(...), table_status: str = Form(...), table_description: str = Form(...), table_name: str = Form(...), db:AsyncSession = Depends(get_db),
+async def create_table(file: UploadFile = File(...), table_status: str = Form(...), table_description: str = Form(...), table_name: str = Form(...),
+                       table_category: str = Form(...), db:AsyncSession = Depends(get_db),
                        user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
     if user_info :
         repository = CreateTableRepository(db)
         try:
-            data = await repository.create_table(user_info.get('id'), file, table_status, table_description, table_name)
+            data = await repository.create_table(user_info.get('id'), file, table_status, table_description, table_name, table_category)
             return data
         except HTTPException as e:
             return JSONResponse(status_code=e.status_code, content={"detail": e.detail})

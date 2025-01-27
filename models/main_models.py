@@ -49,6 +49,7 @@ class TableDefinition(Base):
     table_name = Column(String, unique=True, index=True)
     table_status = Column(String, index=True)
     table_description = Column(Text)
+    category = Column(String, nullable=True)
 
     user_tables = relationship("UserTable", back_populates="table_definition")
     favorite_tables = relationship("FavoriteTables", back_populates="table")
