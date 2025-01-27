@@ -8,9 +8,7 @@ class Base(DeclarativeBase):
     pass
 
 
-# connection_string = f"postgresql+asyncpg://{os.getenv('DEV_DATABASE_USER')}:{os.getenv('DEV_DATABASE_PASSWORD')}@{os.getenv('DEV_DATABASE_HOST')}:5432/{os.getenv('DEV_DATABASE_NAME')}"
-
-connection_string = "postgresql+asyncpg://postgres:Initial_123@localhost/dynamic_db"
+connection_string = os.getenv('PROD_DATABASE_URL')
 
 engine = create_async_engine(connection_string, echo=True)
 
