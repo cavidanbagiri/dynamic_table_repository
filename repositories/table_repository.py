@@ -8,14 +8,15 @@ from typing import Optional, List
 
 import sqlparse
 from fastapi import UploadFile, HTTPException
-from pandas.io.sql import execute
+from sqlalchemy.dialects.postgresql import insert
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError, ProgrammingError
 from sqlalchemy.sql import text
-from sqlalchemy import select, and_, or_, MetaData, Table
-from sqlalchemy.orm import joinedload, aliased, selectinload
-from unicodedata import category
+from sqlalchemy import select, and_, or_
+from sqlalchemy.orm import joinedload, aliased
+from sqlalchemy import Table, Column, Integer, String, MetaData
+from sqlalchemy.sql.ddl import CreateTable
 
 from db.setup import SessionLocal
 
@@ -264,7 +265,7 @@ class CreateTableRepository:
             # 6.1 - Create Table
             try:
                 await self._create_table_and_columns(session, define_table_name, columns)
-            # except Exception as e:
+
             except ProgrammingError as e:
                 await self._delete_table_definition(table_id)
                 raise HTTPException(status_code=500, detail=f"Error creating table: {str(e)}")
@@ -303,9 +304,11 @@ class CreateTableRepository:
     def _read_the_file(self, file):
         try:
             if file.filename.endswith('.csv'):
-                df = pd.read_csv(file.file)
+                with file.file as f:
+                    df = pd.read_csv(f)
             else:
-                df = pd.read_excel(file.file)
+                with file.file as f:
+                    df = pd.read_excel(f)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Error reading file: {str(e)}")
         return df
@@ -325,9 +328,13 @@ class CreateTableRepository:
             await session.commit()
 
     async def _create_table_and_columns(self, session: AsyncSession, table_name: str, columns: list):
-        query = f"CREATE TABLE {table_name} (id SERIAL PRIMARY KEY, "
-        query += ", ".join([f"{column} TEXT NULL" for column in columns]) + ")"
-        await session.execute(text(query))
+        metadata = MetaData()
+        table = Table(
+            table_name, metadata,
+            Column('id', Integer, primary_key=True),
+            *[Column(column.lower(), String) for column in columns]
+        )
+        await session.execute(CreateTable(table))
 
     async def insert_row_by_row(self, session, table_name, data):
 
@@ -349,6 +356,7 @@ class CreateTableRepository:
                 await session.execute(text(query), row_data)
             except SQLAlchemyError as e:
                 print(f"Error inserting row {index + 1}: {str(e)}")
+
 
     async def _create_user_tables(self, user_id, table_id: int, session: AsyncSession):
         data = UserTable(user_id=user_id, table_id=table_id)

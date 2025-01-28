@@ -8,7 +8,7 @@ class Base(DeclarativeBase):
     pass
 
 
-connection_string = os.getenv('PROD_DATABASE_URL')
+connection_string = os.getenv('DEV_DATABASE_URL')
 
 engine = create_async_engine(connection_string, echo=True)
 
