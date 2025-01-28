@@ -53,8 +53,12 @@ class FetchPublicTablesRepository:
                 )
 
                 result = data.unique().scalars().all()
+
+
                 processed_result = []
                 for table in result:
+                    if not table.user_tables:
+                        continue
                     table_info = {
                         "id": table.id,
                         "table_name": table.table_name.replace('_', ' ').title(),
@@ -66,6 +70,15 @@ class FetchPublicTablesRepository:
                         "email": table.user_tables[0].user.email,
                         "created_at": table.created_at
                     }
+                    # Get column size
+                    column_size_result = await session.execute(text(
+                        f"SELECT COUNT(*) FROM information_schema.columns WHERE table_name = '{table_info['original_table_name']}'"))
+                    table_info["column_size"] = column_size_result.scalar()  # Extract the scalar value
+
+                    # Get row size
+                    row_size_result = await session.execute(
+                        text(f"SELECT COUNT(*) FROM {table_info['original_table_name']}"))
+                    table_info["row_size"] = row_size_result.scalar()  # Extract the scalar value
                     processed_result.append(table_info)
                 return processed_result
 
@@ -78,16 +91,31 @@ class FetchPublicTablesRepository:
                 result = data.unique().scalars().all()
                 processed_result = []
                 for table in result:
+
+                    if not table.user_tables:
+                        continue
+
                     table_info = {
                         "id": table.id,
                         "table_name": table.table_name.replace('_', ' ').title(),
                         "original_table_name": table.table_name,
                         "table_status": table.table_status,
                         "table_description": table.table_description,
+                        "table_category": table.category,
                         "username": table.user_tables[0].user.username,
                         "email": table.user_tables[0].user.email,
                         "created_at": table.created_at
                     }
+                    # Get column size
+                    column_size_result = await session.execute(text(
+                        f"SELECT COUNT(*) FROM information_schema.columns WHERE table_name = '{table_info['original_table_name']}'"))
+                    table_info["column_size"] = column_size_result.scalar()  # Extract the scalar value
+
+                    # Get row size
+                    row_size_result = await session.execute(
+                        text(f"SELECT COUNT(*) FROM {table_info['original_table_name']}"))
+                    table_info["row_size"] = row_size_result.scalar()  # Extract the scalar value
+
                     processed_result.append(table_info)
                 return processed_result
 
@@ -233,8 +261,7 @@ class CreateTableRepository:
             if not table_name:
                 raise HTTPException(status_code=400, detail="Table name are required.")
             if not self._is_valid_name(table_name):
-                raise HTTPException(status_code=400,
-                                    detail="Table name must be alphanumeric and can include underscores.")
+                raise HTTPException(status_code=400, detail="Table name must be alphanumeric and can include underscores.")
 
             define_table_name = f"{table_name.strip().lower()}"
 
@@ -264,32 +291,17 @@ class CreateTableRepository:
 
             # 6.1 - Create Table
             try:
-                await self._create_table_and_columns(session, define_table_name, columns)
-
-            except ProgrammingError as e:
-                await self._delete_table_definition(table_id)
-                raise HTTPException(status_code=500, detail=f"Error creating table: {str(e)}")
-            except Exception as e:
-                await self._delete_table_definition(table_id)
-                raise HTTPException(status_code=500, detail=f"Error creating table: {str(e)}")
-
-            # 7 - Insert Table
-            try:
+                await self._create_table_and_columns(session, define_table_name, columns) # create table and columns
                 await self.insert_row_by_row(session, define_table_name, df)
-            except Exception as e:
-                await self._delete_table_definition(table_id)
-                raise HTTPException(status_code=500, detail=f"Error inserting data: {str(e)}")
-
-            # 8 - Create User Table
-            try:
                 await self._create_user_tables(user_id=user_id, table_id=table_id, session=session)
+                await session.commit()
+                return {'message': 'Table created successfully'}
             except Exception as e:
+                print(f'error is {e}')
+                await session.rollback()
                 await self._delete_table_definition(table_id)
-                raise HTTPException(status_code=500, detail=f"Error creating user table: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error creating table: {str(e)}")
 
-
-            await session.commit()
-            return {'message': 'Table created successfully'}
 
     # Check table name is already exists
     async def _check_table_already_exists(self, define_table_name, session):
@@ -357,7 +369,6 @@ class CreateTableRepository:
             except SQLAlchemyError as e:
                 print(f"Error inserting row {index + 1}: {str(e)}")
 
-
     async def _create_user_tables(self, user_id, table_id: int, session: AsyncSession):
         data = UserTable(user_id=user_id, table_id=table_id)
         session.add(data)
@@ -371,6 +382,11 @@ class CreateTableRepository:
             if not re.match(r'^[A-Za-z0-9_çÇğĞıİöÖşŞüÜа-яА-ЯёЁ]+$', column):
                 raise HTTPException(status_code=400,
                                     detail=f"Invalid column name: '{column}'. Column names must be alphanumeric and can include underscores.")
+
+            # If the column name start with number, raise error
+            if column[0].isdigit():
+                raise HTTPException(status_code=400,
+                                    detail=f"Invalid column name: '{column}'. Column names cannot start with a number.")
 
             # Check for reserved keywords
             if column.upper() in reserved_keywords:

@@ -56,7 +56,7 @@ class TableDefinition(Base):
     created_at = Column(DateTime, nullable=True, server_default=func.now())
 
     def __repr__(self):
-        return f"TableDefinition(table_name={self.table_name}, table_status={self.table_status}), table_description={self.table_description}), created_at={self.created_at})"
+        return f"TableDefinition(table_name={self.table_name}, table_status={self.table_status}), created_at={self.created_at})"
 
 
 class FavoriteTables(Base):
