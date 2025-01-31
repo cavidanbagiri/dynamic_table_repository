@@ -1,6 +1,5 @@
 
 import time
-import asyncio
 import re
 import pandas as pd
 
@@ -8,14 +7,13 @@ from typing import Optional, List
 
 import sqlparse
 from fastapi import UploadFile, HTTPException
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.dialects.mssql.information_schema import columns
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import SQLAlchemyError, ProgrammingError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql import text
-from sqlalchemy import select, and_, or_
 from sqlalchemy.orm import joinedload, aliased
-from sqlalchemy import Table, Column, Integer, String, MetaData
+from sqlalchemy import Table, Column, Integer, String, MetaData, select, and_, or_, Float, Date, inspect
 from sqlalchemy.sql.ddl import CreateTable
 
 from db.setup import SessionLocal
@@ -264,6 +262,7 @@ class CreateTableRepository:
                 raise HTTPException(status_code=400, detail="Table name must be alphanumeric and can include underscores.")
 
             define_table_name = f"{table_name.strip().lower()}"
+            table_category = f"{table_category.strip().lower()}"
 
             # 1 - Check if table already exists
             await self._check_table_already_exists(define_table_name, session)
@@ -276,11 +275,12 @@ class CreateTableRepository:
             df = self._read_the_file(file)
 
             # 4 - Get All Columns
-            df.columns = df.columns.str.strip().str.replace(r'[ ./\\-]', '_', regex=True)
-            columns = [column.strip() for column in df.columns]
+
+            columns_alchemy = self._create_columns_according_to_datatypes(df)[0]
+            columns_names = self._create_columns_according_to_datatypes(df)[1]
 
             # 5 - Validate Column Names
-            self._validate_column_names(columns)
+            self._validate_column_names(columns_names)
 
             # 6 - Create TableDefinition and Table
             # 6.0 - Create TableDefinition
@@ -291,7 +291,7 @@ class CreateTableRepository:
 
             # 6.1 - Create Table
             try:
-                await self._create_table_and_columns(session, define_table_name, columns) # create table and columns
+                await self._create_table_and_columns(session, define_table_name, columns_alchemy) # create table and columns
                 await self.insert_row_by_row(session, define_table_name, df)
                 await self._create_user_tables(user_id=user_id, table_id=table_id, session=session)
                 await session.commit()
@@ -339,35 +339,52 @@ class CreateTableRepository:
             await session.delete(table_definition)
             await session.commit()
 
-    async def _create_table_and_columns(self, session: AsyncSession, table_name: str, columns: list):
+    async def _create_table_and_columns(self, session: AsyncSession, table_name: str, columns_alchemy: list):
         metadata = MetaData()
         table = Table(
             table_name, metadata,
             Column('id', Integer, primary_key=True),
-            *[Column(column.lower(), String) for column in columns]
+            *columns_alchemy
         )
         await session.execute(CreateTable(table))
 
+    # Need to check here there is a problem
     async def insert_row_by_row(self, session, table_name, data):
 
         for index, row in data.iterrows():
-
-            # Convert the row to a dictionary
             row_data = row.to_dict()
 
-            # Convert all values to strings
-            row_data = {key: str(value) for key, value in row_data.items()}
+            # Sanitize column names and convert values to the appropriate data type
+            sanitized_row_data = {}
+            for column_name, value in row_data.items():
+                # Sanitize column name: replace special characters with underscores
+                sanitized_column_name = re.sub(r'[^a-zA-Z0-9_]', '_', column_name.strip())
 
-            # Create an insert query
-            columns = ', '.join(row_data.keys())
-            placeholders = ', '.join([f":{key}" for key in row_data.keys()])
+                if pd.isna(value):
+                    sanitized_row_data[sanitized_column_name] = None  # Handle NULL values
+                else:
+                    # Determine the column type from the DataFrame's dtypes
+                    dtype = data[column_name].dtype
+                    if pd.api.types.is_integer_dtype(dtype):
+                        sanitized_row_data[sanitized_column_name] = int(value)
+                    elif pd.api.types.is_float_dtype(dtype):
+                        sanitized_row_data[sanitized_column_name] = float(value)
+                    elif pd.api.types.is_datetime64_any_dtype(dtype):
+                        sanitized_row_data[sanitized_column_name] = pd.to_datetime(value).to_pydatetime()
+                    else:
+                        sanitized_row_data[sanitized_column_name] = str(value)  # Default to string
+
+            # Create the insert query
+            columns = ', '.join(sanitized_row_data.keys())
+            placeholders = ', '.join([f":{key}" for key in sanitized_row_data.keys()])
             query = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})"
+            print(f'columns are {columns} and placeholders are {placeholders}')
 
             # Execute the insert query
             try:
-                await session.execute(text(query), row_data)
+                await session.execute(text(query), sanitized_row_data)
             except SQLAlchemyError as e:
-                print(f"Error inserting row {index + 1}: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error inserting row {index + 1}: {str(e)}")
 
     async def _create_user_tables(self, user_id, table_id: int, session: AsyncSession):
         data = UserTable(user_id=user_id, table_id=table_id)
@@ -396,6 +413,31 @@ class CreateTableRepository:
     def _is_valid_name(self, name: str) -> bool:
         # Regular expression to check if the name is alphanumeric and can include underscores
         return bool(re.match(r'^[A-Za-z0-9_]+$', name))
+
+    def _create_columns_according_to_datatypes(self, df):
+        inner_columns = []
+        column_names = []
+
+        for column_name, dtype in df.dtypes.items():
+            # Clean the column name
+            temp_name = column_name
+            column_name = column_name.strip().replace(' ', '_').replace('.', '_').replace('/', '_').replace('\\','_').replace('-', '_')
+
+            if not self._is_valid_name(column_name):
+                raise HTTPException(status_code=400,
+                                    detail=f"Invalid column name: '{temp_name}->{column_name}'. Column names must be alphanumeric and can include underscores.")
+            column_name = column_name.lower()
+            if pd.api.types.is_integer_dtype(dtype):
+                inner_columns.append(Column(column_name, Integer))
+            elif pd.api.types.is_float_dtype(dtype):
+                inner_columns.append(Column(column_name, Float))
+            elif pd.api.types.is_datetime64_any_dtype(dtype):
+                inner_columns.append(Column(column_name, Date))
+            else:
+                inner_columns.append(Column(column_name, String))  # Default to String
+
+            column_names.append(column_name)
+        return [inner_columns, column_names]
 
 
 # Fetch data from table

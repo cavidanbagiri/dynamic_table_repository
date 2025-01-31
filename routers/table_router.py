@@ -65,6 +65,7 @@ async def add_to_favorites(table_id: int, db: AsyncSession = Depends(get_db), us
     else:
         return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
 
+
 # Checked - Delete table from favorites
 @router.post("/deletefromfavorites/{table_id}", status_code=201)
 async def delete_from_favorites(table_id: int, db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):

@@ -1,7 +1,4 @@
 
-from datetime import datetime
-
-
 from db.setup import Base
 from sqlalchemy import func
 from sqlalchemy import Column, Integer, String, ForeignKey, Text, DateTime
