@@ -9,7 +9,8 @@ from typing import Optional
 from db.setup import get_db
 from dependecies.authorization import TokenVerifyMiddleware
 from repositories.table_repository import CreateTableRepository, FetchTableRepository, ExecuteQueryRepository, \
-    FetchPublicTablesRepository, FavoriteTableRepository, FetchTableWithHeaderFilterRepository, FetchMyTablesRepository
+    FetchPublicTablesRepository, FavoriteTableRepository, FetchTableWithHeaderFilterRepository, FetchMyTablesRepository, \
+    DeleteTableRepository
 
 from schemas.table_schemas import QueryRequest
 
@@ -127,7 +128,7 @@ async def filter_table_by_headers(table_name: str, request: Request, db: AsyncSe
         return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
 
 
-# Working ON
+# Checked
 @router.post("/query")
 async def sql_query(
     query_request: QueryRequest,  # Use the Pydantic model here
@@ -150,22 +151,15 @@ async def sql_query(
         return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
 
 
-# @router.get("/query/{table_name}")
-# async def sql_query(
-#         table_name: str,
-#         sql_query: str,  # Ensure this is a string type
-#         db: AsyncSession = Depends(get_db),
-#         user_info=Depends(TokenVerifyMiddleware.verify_access_token)
-# ):
-#     repository = ExecuteQueryRepository(db)
-#
-#     if user_info:
-#         try:
-#             data = await repository.execute_query(sql_query)
-#             return data
-#         except HTTPException as e:
-#             return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
-#         except Exception as e:
-#             return JSONResponse(status_code=500, content={"detail": f"An error occurred: {str(e)}"})
-#     else:
-#         return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
+# Working On
+@router.get("/deletetable/{table_name}")
+async def delete_table(table_name: str, db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
+    repository = DeleteTableRepository(db)
+    if user_info:
+        try:
+            data = await repository.delete_table(table_name, user_info.get('id'))
+            return data
+        except HTTPException as e:
+            return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+    else:
+        return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
