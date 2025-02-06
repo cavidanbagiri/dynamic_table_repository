@@ -32,25 +32,6 @@ class FetchPublicTablesRepository:
                 FavoriteTablesAlias = aliased(FavoriteTables)
                 UserTableAlias = aliased(UserTable)
 
-                print(f'sql command.......................... \n {select(TableDefinition)
-                    .options(
-                        joinedload(TableDefinition.user_tables.of_type(UserTableAlias)).joinedload(UserTableAlias.user),
-                        joinedload(TableDefinition.favorite_tables.of_type(FavoriteTablesAlias))
-                    )
-                    .where(
-                        and_(
-                            TableDefinition.table_status == "public",
-                            or_(
-                                and_(
-                                    FavoriteTablesAlias.user_id != user_id,
-                                    FavoriteTablesAlias.user_id == None
-                                ),
-                                UserTable.user_id != user_id
-            )
-                            
-                        )
-                    )} \n')
-
                 # Execute the query
                 data = await session.execute(
                     select(TableDefinition)

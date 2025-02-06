@@ -152,7 +152,7 @@ async def sql_query(
 
 
 # Working On
-@router.get("/deletetable/{table_name}")
+@router.delete("/deletetable/{table_name}")
 async def delete_table(table_name: str, db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
     repository = DeleteTableRepository(db)
     if user_info:

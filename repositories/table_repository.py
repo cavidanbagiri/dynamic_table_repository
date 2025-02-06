@@ -639,7 +639,7 @@ class DeleteTableRepository:
         self.db = db
 
     async def delete_table(self, table_name: str, user_id: int):
-        async with self.db as session:
+        async with SessionLocal() as session:
             try:
                 # Validate table name
                 if not self.is_valid_table_name(table_name):
