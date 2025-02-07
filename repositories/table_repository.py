@@ -679,3 +679,43 @@ class DeleteTableRepository:
     def is_valid_table_name(self, table_name: str) -> bool:
         # Validate table name (alphanumeric and underscores only)
         return bool(re.match(r'^[A-Za-z0-9_]+$', table_name))
+
+
+class SearchPublicTableRepository:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def search_public_table(self, search_keyword: str, user_id: int):
+        try:
+            # Parameterized query to prevent SQL injection
+            query = text("""
+                SELECT * FROM table_definitions
+                LEFT JOIN user_tables ON table_definitions.id = user_tables.table_id
+                LEFT JOIN users ON users.id = user_tables.user_id
+                WHERE (table_name LIKE :search_keyword OR table_description LIKE :search_keyword OR category LIKE :search_keyword)
+                AND table_status = 'public'
+                AND user_tables.user_id != :user_id
+            """)
+            result = await self.db.execute(query, {"search_keyword": f"%{search_keyword}%", "user_id": user_id})
+            data = result.mappings().all()
+
+            # Process data using dictionary comprehension
+            processed_data = [
+                {
+                    "id": item["id"],
+                    "table_name": item["table_name"].replace('_', ' ').title(),
+                    "original_table_name": item["table_name"],
+                    "table_description": item["table_description"],
+                    "table_status": item["table_status"],
+                    "table_category": item["category"],
+                    "created_at": item["created_at"],
+                    "user_id": item["user_id"]
+                }
+                for item in data
+            ]
+
+            return processed_data
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error searching public table: {str(e)}")
+

@@ -169,9 +169,10 @@ async def delete_table(table_name: str, db: AsyncSession = Depends(get_db), user
 @router.get("/searchpublictable")
 async def search_public_table(search_keyword: str, db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
     repository = SearchPublicTableRepository(db)
+    print(f'search keywork is :::::::::::::::::::::: ', search_keyword)
     if user_info:
         try:
-            data = await repository.search_public_table(search_keyword, user_id = user_info.get('id'))
+            data = await repository.search_public_table(search_keyword)
             return data
         except HTTPException as e:
             print(f'Error searching public table: {str(e)}')
