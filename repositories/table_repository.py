@@ -537,47 +537,60 @@ class FetchTableRepository:
 
 # Fetch data from table with header query
 class FetchTableWithHeaderFilterRepository:
-
     def __init__(self, db: AsyncSession):
         self.db = db
 
     async def fetch_table_with_header(self, user_id: int, table_name: str, params: dict):
         start_time = time.time()
-        # Start building the query
-        query = f"SELECT * FROM {table_name} WHERE 1=1"
+
+        # Start building the base query
+        base_query = f"""
+        SELECT *, COUNT(*) OVER() AS total_rows
+        FROM {table_name}
+        WHERE 1=1
+        """
         filters = []
-        values = []
+        filter_values = {}
 
         # Build the filter conditions
         for key, value in params.items():
-            filters.append(f"{key} ILIKE :{key}")
-            values.append((key, f"%{value}%"))
+            filters.append(f"{key}::text ILIKE :{key}")  # Cast to text and use ILIKE
+            filter_values[key] = f"%{value}%"  # Add value to filter_values
 
         # Add filters to the query if any
         if filters:
-            query += " AND " + " AND ".join(filters)
+            base_query += " AND " + " AND ".join(filters)
+
+        # Add LIMIT to the query
+        base_query += " LIMIT 100;"
+
+        print(f'Query: {base_query}')  # Debugging: Print the final query
 
         # Execute the query with parameters
-        data = await self.db.execute(text(query), dict(values))
+        result = await self.db.execute(text(base_query), filter_values)
+        data = result.mappings().fetchall()
 
-        # Fetch the results
-        temp = data.mappings().fetchall()
-
-        # Fetching column names
+        # Fetch column names
         headers = await self.fetch_columns(table_name)
 
-
+        # Calculate execution time
         execution_time = time.time() - start_time
+
+        # Extract total_rows from the first row (if data exists)
+        total_rows = data[0]["total_rows"] if data else 0
 
         # Return the results
         return {
-            "data": temp[:100],  # Limit to 100 results
-            "total_rows": len(temp),  # Total rows fetched
-            "execution_time": execution_time.__round__(4),  # Execution time
-            "headers": headers
+            "data": data,  # Limited to 100 results by the query
+            "total_rows": total_rows,  # Total rows matching the query
+            "execution_time": round(execution_time, 4),  # Execution time rounded to 4 decimal places
+            "headers": headers  # Column headers
         }
 
     async def fetch_columns(self, table_name: str, schema: str = 'public') -> List[str]:
+        """
+        Fetch column names for a given table.
+        """
         query = """
         SELECT column_name
         FROM information_schema.columns
