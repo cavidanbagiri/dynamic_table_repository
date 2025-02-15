@@ -1,6 +1,8 @@
 
 import time
 import re
+from datetime import datetime
+
 import pandas as pd
 
 from typing import Optional, List
@@ -12,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql import text
 from sqlalchemy.orm import joinedload, aliased
-from sqlalchemy import Table, Column, Integer, String, MetaData, select, and_, or_, Float, Date, delete
+from sqlalchemy import Table, Column, Integer, String, MetaData, select, and_, or_, Float, Date, delete, Boolean
 from sqlalchemy.sql.ddl import CreateTable
 
 from db.setup import SessionLocal
@@ -249,8 +251,38 @@ class FavoriteTableRepository:
             return processed_result
 
 
+# Table Validation
+class TableValidationRepository:
+
+    @staticmethod
+    def is_valid_name(name: str) -> bool:
+        # Regular expression to check if the name is alphanumeric and can include underscores
+        return bool(re.match(r'^[A-Za-z0-9_]+$', name))
+
+    @staticmethod
+    def validate_column_names(columns):
+        reserved_keywords = {'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'FROM', 'WHERE', 'JOIN', 'CREATE', 'DROP', 'ALTER',
+                             'TABLE'}
+
+        for column in columns:
+            # Check if the column name is alphanumeric or contains underscores
+            if not re.match(r'^[A-Za-z0-9_çÇğĞıİöÖşŞüÜа-яА-ЯёЁ]+$', column):
+                raise HTTPException(status_code=400,
+                                    detail=f"Invalid column name: '{column}'. Column names must be alphanumeric and can include underscores.")
+
+            # If the column name start with number, raise error
+            if column[0].isdigit():
+                raise HTTPException(status_code=400,
+                                    detail=f"Invalid column name: '{column}'. Column names cannot start with a number.")
+
+            # Check for reserved keywords
+            if column.upper() in reserved_keywords:
+                raise HTTPException(status_code=400,
+                                    detail=f"Invalid column name: '{column}'. Column names cannot be SQL reserved keywords.")
+
+
 # Create a new table
-class CreateTableRepository:
+class CreateTableRepository (TableValidationRepository):
 
     def __init__(self, db):
         self.db = db
@@ -262,7 +294,7 @@ class CreateTableRepository:
             # 0 - Check Table Name and company
             if not table_name:
                 raise HTTPException(status_code=400, detail="Table name are required.")
-            if not self._is_valid_name(table_name):
+            if not TableValidationRepository.is_valid_name(table_name):
                 raise HTTPException(status_code=400, detail="Table name must be alphanumeric and can include underscores.")
 
             define_table_name = f"{table_name.strip().lower()}"
@@ -284,7 +316,7 @@ class CreateTableRepository:
             columns_names = self._create_columns_according_to_datatypes(df)[1]
 
             # 5 - Validate Column Names
-            self._validate_column_names(columns_names)
+            TableValidationRepository.validate_column_names(columns_names)
 
             # 6 - Create TableDefinition and Table
             # 6.0 - Create TableDefinition
@@ -301,13 +333,11 @@ class CreateTableRepository:
                 await session.commit()
                 return {'message': 'Table created successfully'}
             except Exception as e:
-                print(f'error is {e}')
                 await session.rollback()
                 await self._delete_table_definition(table_id)
                 raise HTTPException(status_code=500, detail=f"Error creating table: {str(e)}")
 
 
-    # Check table name is already exists
     async def _check_table_already_exists(self, define_table_name, session):
 
         query = f"SELECT * FROM information_schema.tables WHERE table_name = '{define_table_name}'"
@@ -316,7 +346,6 @@ class CreateTableRepository:
         if table_exists:
             raise HTTPException(status_code=400, detail="Table already exists.")
 
-    # Read the file into a DataFrame
     def _read_the_file(self, file):
         try:
             if file.filename.endswith('.csv'):
@@ -352,7 +381,6 @@ class CreateTableRepository:
         )
         await session.execute(CreateTable(table))
 
-    # Need to check here there is a problem
     async def insert_row_by_row(self, session, table_name, data):
 
         for index, row in data.iterrows():
@@ -382,7 +410,6 @@ class CreateTableRepository:
             columns = ', '.join(sanitized_row_data.keys())
             placeholders = ', '.join([f":{key}" for key in sanitized_row_data.keys()])
             query = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})"
-            print(f'columns are {columns} and placeholders are {placeholders}')
 
             # Execute the insert query
             try:
@@ -394,30 +421,6 @@ class CreateTableRepository:
         data = UserTable(user_id=user_id, table_id=table_id)
         session.add(data)
 
-    def _validate_column_names(self, columns):
-        reserved_keywords = {'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'FROM', 'WHERE', 'JOIN', 'CREATE', 'DROP', 'ALTER',
-                             'TABLE'}
-
-        for column in columns:
-            # Check if the column name is alphanumeric or contains underscores
-            if not re.match(r'^[A-Za-z0-9_çÇğĞıİöÖşŞüÜа-яА-ЯёЁ]+$', column):
-                raise HTTPException(status_code=400,
-                                    detail=f"Invalid column name: '{column}'. Column names must be alphanumeric and can include underscores.")
-
-            # If the column name start with number, raise error
-            if column[0].isdigit():
-                raise HTTPException(status_code=400,
-                                    detail=f"Invalid column name: '{column}'. Column names cannot start with a number.")
-
-            # Check for reserved keywords
-            if column.upper() in reserved_keywords:
-                raise HTTPException(status_code=400,
-                                    detail=f"Invalid column name: '{column}'. Column names cannot be SQL reserved keywords.")
-
-    def _is_valid_name(self, name: str) -> bool:
-        # Regular expression to check if the name is alphanumeric and can include underscores
-        return bool(re.match(r'^[A-Za-z0-9_]+$', name))
-
     def _create_columns_according_to_datatypes(self, df):
         inner_columns = []
         column_names = []
@@ -427,7 +430,7 @@ class CreateTableRepository:
             temp_name = column_name
             column_name = column_name.strip().replace(' ', '_').replace('.', '_').replace('/', '_').replace('\\','_').replace('-', '_')
 
-            if not self._is_valid_name(column_name):
+            if not self.is_valid_name(column_name):
                 raise HTTPException(status_code=400,
                                     detail=f"Invalid column name: '{temp_name}->{column_name}'. Column names must be alphanumeric and can include underscores.")
             column_name = column_name.lower()
@@ -564,7 +567,6 @@ class FetchTableWithHeaderFilterRepository:
         # Add LIMIT to the query
         base_query += " LIMIT 100;"
 
-        print(f'Query: {base_query}')  # Debugging: Print the final query
 
         # Execute the query with parameters
         result = await self.db.execute(text(base_query), filter_values)
@@ -694,6 +696,7 @@ class DeleteTableRepository:
         return bool(re.match(r'^[A-Za-z0-9_]+$', table_name))
 
 
+# Search public table with keywords
 class SearchPublicTableRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -732,3 +735,88 @@ class SearchPublicTableRepository:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error searching public table: {str(e)}")
 
+
+# Create table from ready components
+class CreateTableFromReadyComponentsRepository (TableValidationRepository):
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def create_table_from_components(self, table_data, user_id: int):
+
+        async with SessionLocal() as session:
+
+            try:
+
+                # 1 - Validate table data
+                if not table_data.tableName:
+                    raise HTTPException(status_code=400, detail="Table name is required")
+                # 1.1 - Validate table name
+                if not TableValidationRepository.is_valid_name(table_data.tableName):
+                    raise HTTPException(status_code=400, detail="Table name must be alphanumeric and can include underscores.")
+
+                # 1.1 - Validate columns
+                if not table_data.columns:
+                    raise HTTPException(status_code=400, detail="At least one column is required")
+
+                # 1.2 - Validate column names
+                cols = []
+                for column in table_data.columns:
+                    cols.append(column.name)
+                TableValidationRepository.validate_column_names(cols)
+
+                # 2 - Check if the table already exists
+                table = await session.scalar(select(TableDefinition).where(TableDefinition.table_name == table_data.tableName))
+                if table:
+                    raise HTTPException(status_code=400, detail="Table with the same name already exists.")
+
+
+
+                # 3 - Create the table
+                table_definition = TableDefinition(
+                    table_name=table_data.tableName,
+                    table_description=table_data.description,
+                    table_status=table_data.tableStatus,
+                    category=table_data.category,
+                )
+                session.add(table_definition)
+                await session.commit()  # Commit to generate the ID
+                await session.refresh(table_definition)
+                table_id = table_definition.id
+
+                # 4 - Create the table columns
+
+                type_mapping = {
+                    "string": String,
+                    "integer": Integer,
+                    "boolean": Boolean,
+                    "date": Date,
+                    "float": Float
+                }
+
+                # Create table columns dynamically
+                columns = [
+                    Column("id", Integer, primary_key=True, autoincrement=True)
+                ]
+                for col in table_data.columns:
+                    if col.type not in type_mapping:
+                        raise HTTPException(status_code=400, detail=f"Invalid column type: {col.type}")
+                    columns.append(Column(col.name, type_mapping[col.type]))
+
+                # Create the table
+                metadata = MetaData()
+                table = Table(table_data.tableName, metadata, *columns)
+                await session.execute(CreateTable(table))
+
+                # 5 - Create the user table
+                user_table = UserTable(
+                    table_id=table_id,
+                    user_id=user_id
+                )
+                session.add(user_table)
+                await session.commit()
+
+                return {"message": f"Table '{table_data.tableName}' created successfully"}
+
+            except Exception as e:
+                await session.rollback()
+                raise HTTPException(status_code=500, detail=f"Error creating table: {str(e)}")

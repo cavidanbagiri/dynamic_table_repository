@@ -4,3 +4,15 @@ from pydantic import BaseModel
 
 class QueryRequest(BaseModel):
     sql_query: str
+
+# Pydantic model for request body
+class ColumnSchema(BaseModel):
+    name: str
+    type: str
+
+class TableCreateRequest(BaseModel):
+    tableName: str
+    tableStatus: str
+    category: str
+    description: str
+    columns: list[ColumnSchema]

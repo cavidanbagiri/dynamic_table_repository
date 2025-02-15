@@ -10,9 +10,9 @@ from db.setup import get_db
 from dependecies.authorization import TokenVerifyMiddleware
 from repositories.table_repository import CreateTableRepository, FetchTableRepository, ExecuteQueryRepository, \
     FetchPublicTablesRepository, FavoriteTableRepository, FetchTableWithHeaderFilterRepository, FetchMyTablesRepository, \
-    DeleteTableRepository, SearchPublicTableRepository
+    DeleteTableRepository, SearchPublicTableRepository, CreateTableFromReadyComponentsRepository
 
-from schemas.table_schemas import QueryRequest
+from schemas.table_schemas import QueryRequest, TableCreateRequest
 
 router = APIRouter()
 
@@ -165,7 +165,7 @@ async def delete_table(table_name: str, db: AsyncSession = Depends(get_db), user
         return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
 
 
-# Working On
+# Checked
 @router.get("/searchpublictable")
 async def search_public_table(search_keyword: str, db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
     repository = SearchPublicTableRepository(db)
@@ -177,4 +177,22 @@ async def search_public_table(search_keyword: str, db: AsyncSession = Depends(ge
             print(f'Error searching public table: {str(e)}')
             return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
     else:
+        return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
+
+
+# Working On
+@router.post("/createtablefromcomponents")
+async def create_table_from_components(table_data : TableCreateRequest, db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
+    print(f'///////////////// {table_data}')
+    repository = CreateTableFromReadyComponentsRepository(db)
+    if user_info:
+        try:
+            data = await repository.create_table_from_components(table_data, user_id=user_info.get('id'))
+            # return {"detail": "Table created successfully"}
+            return data
+        except HTTPException as e:
+            print(f'Error creating table from components: {str(e)}')
+            return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+    else:
+        print(f'Error creating table from components: ')
         return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
