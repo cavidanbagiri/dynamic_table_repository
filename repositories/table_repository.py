@@ -603,50 +603,6 @@ class FetchTableWithHeaderFilterRepository:
         return columns
 
 
-# Execute SQL Query in database
-class ExecuteQueryRepository:
-
-    def __init__(self, db: AsyncSession):
-        self.db = db
-
-    async def execute_query(self, query: str) -> object:
-        try:
-
-            if not self.is_valid_sql(query):
-                raise HTTPException(status_code=400, detail="Invalid SQL query")
-
-            start_time = time.time()
-            result = await self.db.execute(text(query))
-
-            # Check if the result has any rows
-            if result.rowcount == 0:
-                return []  # Return an empty list if no rows are found
-
-            # Use mappings to get all columns
-            temp = result.mappings().all()
-
-            headers = []
-            for key in temp[0].keys():
-                headers.append(key)
-
-            execution_time = time.time() - start_time
-            return {
-                "data": temp[:100],  # Limit to 100 results
-                "total_rows": len(temp),  # Total rows fetched
-                "execution_time": execution_time.__round__(4),
-                "headers": headers
-            }
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error executing query: {str(e)}")
-
-    def is_valid_sql(self, query: str) -> bool:
-        try:
-            parsed = sqlparse.parse(query)
-            return len(parsed) > 0
-        except HTTPException as e:
-            return False
-
-
 # Delete table from database
 class DeleteTableRepository:
 
@@ -820,3 +776,93 @@ class CreateTableFromReadyComponentsRepository (TableValidationRepository):
             except Exception as e:
                 await session.rollback()
                 raise HTTPException(status_code=500, detail=f"Error creating table: {str(e)}")
+
+
+from sqlalchemy import text
+from fastapi import HTTPException
+import sqlparse
+import time
+
+class ExecuteQueryRepository:
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def execute_query(self, query: str) -> object:
+        try:
+            # Validate the SQL query
+            if not self.is_valid_sql(query):
+                raise HTTPException(status_code=400, detail="Invalid SQL query")
+
+            # Check if the query attempts to access restricted tables
+            if self.contains_restricted_tables(query):
+                raise HTTPException(status_code=403, detail="Table not found")
+
+            # Execute the query
+            start_time = time.time()
+            result = await self.db.execute(text(query))
+
+            # Check if the result has any rows
+            if result.rowcount == 0:
+                return []  # Return an empty list if no rows are found
+
+            # Use mappings to get all columns
+            temp = result.mappings().all()
+
+            headers = []
+            for key in temp[0].keys():
+                headers.append(key)
+
+            execution_time = time.time() - start_time
+            return {
+                "data": temp[:100],  # Limit to 100 results
+                "total_rows": len(temp),  # Total rows fetched
+                "execution_time": execution_time.__round__(4),
+                "headers": headers
+            }
+        except HTTPException as e:
+            raise e  # Re-raise HTTPException to return the error response
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error executing query: {str(e)}")
+
+    def is_valid_sql(self, query: str) -> bool:
+        try:
+            parsed = sqlparse.parse(query)
+            return len(parsed) > 0
+        except Exception:
+            return False
+
+    def contains_restricted_tables(self, query: str) -> bool:
+        """
+        Check if the query contains references to restricted tables.
+        """
+        restricted_tables = {"user_tables", "alembic_version", "table_definitions", "users", "favorite_tables"}  # Add all restricted table names here
+
+        # Parse the query
+        parsed = sqlparse.parse(query)
+
+        for statement in parsed:
+
+            for i, token in enumerate(statement.tokens):
+
+                # Check if the token is a keyword (e.g., FROM, JOIN, INTO, UPDATE)
+                if token.is_keyword and token.value.upper() in {"FROM", "JOIN", "INTO", "UPDATE"}:
+
+                    # Iterate through the next tokens to find the table name
+                    j = i + 1
+                    while j < len(statement.tokens):
+                        next_token = statement.tokens[j]
+
+                        # Skip whitespace and other irrelevant tokens
+                        if next_token.is_whitespace or next_token.value in {',', '(', ')'}:
+                            j += 1
+                            continue
+
+                        # Extract the table name from the token
+                        table_name = next_token.value.strip().split()[0].strip("`\"'[]")  # Handle quoted table names
+
+                        if table_name.lower() in restricted_tables:
+                            return True
+                        break  # Exit after processing the first non-whitespace token
+
+        return False

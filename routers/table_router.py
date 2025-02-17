@@ -129,29 +129,6 @@ async def filter_table_by_headers(table_name: str, request: Request, db: AsyncSe
 
 
 # Checked
-@router.post("/query")
-async def sql_query(
-    query_request: QueryRequest,  # Use the Pydantic model here
-    db: AsyncSession = Depends(get_db),
-    user_info=Depends(TokenVerifyMiddleware.verify_access_token)
-):
-    sql_query = query_request.sql_query  # Access the sql_query from the request body
-
-    repository = ExecuteQueryRepository(db)
-
-    if user_info:
-        try:
-            data = await repository.execute_query(sql_query)
-            return data
-        except HTTPException as e:
-            return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
-        except Exception as e:
-            return JSONResponse(status_code=500, content={"detail": f"An error occurred: {str(e)}"})
-    else:
-        return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
-
-
-# Checked
 @router.delete("/deletetable/{table_name}")
 async def delete_table(table_name: str, db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
     repository = DeleteTableRepository(db)
@@ -180,19 +157,42 @@ async def search_public_table(search_keyword: str, db: AsyncSession = Depends(ge
         return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
 
 
-# Working On
+# Checked
 @router.post("/createtablefromcomponents")
 async def create_table_from_components(table_data : TableCreateRequest, db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
-    print(f'///////////////// {table_data}')
     repository = CreateTableFromReadyComponentsRepository(db)
     if user_info:
         try:
             data = await repository.create_table_from_components(table_data, user_id=user_info.get('id'))
-            # return {"detail": "Table created successfully"}
             return data
         except HTTPException as e:
             print(f'Error creating table from components: {str(e)}')
             return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
     else:
         print(f'Error creating table from components: ')
+        return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
+
+
+
+
+# Checked
+@router.post("/query")
+async def sql_query(
+    query_request: QueryRequest,  # Use the Pydantic model here
+    db: AsyncSession = Depends(get_db),
+    user_info=Depends(TokenVerifyMiddleware.verify_access_token)
+):
+    sql_query = query_request.sql_query  # Access the sql_query from the request body
+
+    repository = ExecuteQueryRepository(db)
+
+    if user_info:
+        try:
+            data = await repository.execute_query(sql_query)
+            return data
+        except HTTPException as e:
+            return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"detail": f"An error occurred: {str(e)}"})
+    else:
         return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
