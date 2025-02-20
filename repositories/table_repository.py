@@ -14,8 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError, ProgrammingError
 from sqlalchemy.sql import text
 from sqlalchemy.orm import joinedload, aliased
-from sqlalchemy import Table, Column, Integer, String, MetaData, select, and_, or_, Float, Date, delete, Boolean
+from sqlalchemy import Table, Column, Integer, String, MetaData, select, and_, or_, Float, Date, delete, Boolean, \
+    inspect
 from sqlalchemy.sql.ddl import CreateTable
+from sqlalchemy.util import await_only
 
 from db.setup import SessionLocal
 
@@ -783,6 +785,7 @@ class ExecuteQueryRepository:
 
     def __init__(self, db: AsyncSession):
         self.db = db
+        self.table_name = None
 
     async def execute_query(self, query: str) -> object:
         try:
@@ -800,7 +803,7 @@ class ExecuteQueryRepository:
 
             # Check if the result has any rows
             if result.rowcount == 0:
-                return []  # Return an empty list if no rows are found
+                return await self.zero_rows()
 
             # Use mappings to get all columns
             temp = result.mappings().all()
@@ -814,6 +817,7 @@ class ExecuteQueryRepository:
                 "data": temp[:100],  # Limit to 100 results
                 "total_rows": len(temp),  # Total rows fetched
                 "execution_time": execution_time.__round__(4),
+                "original_table_name": self.table_name,
                 "headers": headers
             }
         except ProgrammingError as e:
@@ -828,6 +832,27 @@ class ExecuteQueryRepository:
             raise e
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error executing query: {str(e)}")
+
+    async def zero_rows(self):
+        start_time = time.time()
+        headers = []
+        if self.table_name:
+            # Query the information schema to get column names
+            column_query = text("""
+                                            SELECT column_name
+                                            FROM information_schema.columns
+                                            WHERE table_name = :table_name
+                                            ORDER BY ordinal_position;
+                                        """)
+            column_result = await self.db.execute(column_query, {"table_name": self.table_name})
+            headers = [row[0] for row in column_result]
+        return {
+            "data": [],
+            "total_rows": 0,
+            "execution_time": time.time() - start_time,
+            "original_table_name": self.table_name,
+            "headers": headers
+        }
 
     def is_valid_sql(self, query: str) -> bool:
         try:
@@ -844,7 +869,7 @@ class ExecuteQueryRepository:
 
         # Parse the query
         parsed = sqlparse.parse(query)
-
+        table_name = None
         for statement in parsed:
             for i, token in enumerate(statement.tokens):
                 # Check if the token is a keyword (e.g., FROM, JOIN, INTO, UPDATE)
@@ -865,6 +890,6 @@ class ExecuteQueryRepository:
                         if table_name.lower() in restricted_tables:
                             return True
                         break  # Exit after processing the first non-whitespace token
-
+        self.table_name = table_name
         return False
 
