@@ -11,7 +11,7 @@ import sqlparse
 from fastapi import UploadFile, HTTPException
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, ProgrammingError
 from sqlalchemy.sql import text
 from sqlalchemy.orm import joinedload, aliased
 from sqlalchemy import Table, Column, Integer, String, MetaData, select, and_, or_, Float, Date, delete, Boolean
@@ -778,11 +778,7 @@ class CreateTableFromReadyComponentsRepository (TableValidationRepository):
                 raise HTTPException(status_code=500, detail=f"Error creating table: {str(e)}")
 
 
-from sqlalchemy import text
-from fastapi import HTTPException
-import sqlparse
-import time
-
+# Execute SQL Query
 class ExecuteQueryRepository:
 
     def __init__(self, db: AsyncSession):
@@ -796,7 +792,7 @@ class ExecuteQueryRepository:
 
             # Check if the query attempts to access restricted tables
             if self.contains_restricted_tables(query):
-                raise HTTPException(status_code=403, detail="Table not found")
+                raise HTTPException(status_code=403, detail="Access to restricted tables is not allowed")
 
             # Execute the query
             start_time = time.time()
@@ -820,8 +816,16 @@ class ExecuteQueryRepository:
                 "execution_time": execution_time.__round__(4),
                 "headers": headers
             }
+        except ProgrammingError as e:
+            error_message = str(e.orig).lower()
+            if "does not exist" in error_message and "relation" in error_message:
+                raise HTTPException(status_code=404, detail="Table not found: {}".format(str(e.orig)))
+            elif "does not exist" in error_message and "column" in error_message:
+                raise HTTPException(status_code=404, detail="Column not found: {}".format(str(e.orig)))
+            else:
+                raise HTTPException(status_code=500, detail=f"Error executing query: {str(e.orig)}")
         except HTTPException as e:
-            raise e  # Re-raise HTTPException to return the error response
+            raise e
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error executing query: {str(e)}")
 
@@ -842,12 +846,9 @@ class ExecuteQueryRepository:
         parsed = sqlparse.parse(query)
 
         for statement in parsed:
-
             for i, token in enumerate(statement.tokens):
-
                 # Check if the token is a keyword (e.g., FROM, JOIN, INTO, UPDATE)
                 if token.is_keyword and token.value.upper() in {"FROM", "JOIN", "INTO", "UPDATE"}:
-
                     # Iterate through the next tokens to find the table name
                     j = i + 1
                     while j < len(statement.tokens):
@@ -866,3 +867,4 @@ class ExecuteQueryRepository:
                         break  # Exit after processing the first non-whitespace token
 
         return False
+
