@@ -24,7 +24,7 @@ from db.setup import SessionLocal
 from models.main_models import UserTable, TableDefinition, FavoriteTables
 
 
-# Fetch all public tables -> Checked + Optimized
+# Fetch all public tables -> Checked + Optimezed
 class FetchPublicTablesRepository:
 
     def __init__(self, db: AsyncSession):

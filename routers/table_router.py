@@ -185,7 +185,6 @@ async def sql_query(
     sql_query = query_request.sql_query  # Access the sql_query from the request body
 
     repository = ExecuteQueryRepository(db)
-
     if user_info:
         try:
             data = await repository.execute_query(sql_query)
