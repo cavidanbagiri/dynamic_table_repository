@@ -2,6 +2,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.WARNING,
+                    datefmt='%Y-%m-%d %H:%M:%S',
+                    format='----------[%(asctime)s.%(msecs)03d] - %(module)20s:%(lineno)d - %(levelname)s - %(message)s'
+                    )
+
+
 # Import .env
 from dotenv import load_dotenv
 load_dotenv()

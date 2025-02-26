@@ -12,7 +12,11 @@ import jwt
 import os
 import logging
 
-logger = logging.getLogger(__name__)
+# Set up logging
+logging.basicConfig(level=logging.WARNING,
+                    datefmt='%Y-%m-%d %H:%M:%S',
+                    format='----------[%(asctime)s.%(msecs)03d] - %(module)20s:%(lineno)d - %(levelname)s - %(message)s'
+                    )
 
 
 class UserRegisterRepository:
@@ -54,7 +58,7 @@ class UserRegisterRepository:
             return user_data
         except Exception as e:
             await self.db.rollback()
-            logger.error(f"Error registering user: {str(e)}")
+            logging.error(f"Error registering user: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to register user.")
 
     def _hash_password(self, password: str) -> str:
@@ -70,14 +74,14 @@ class UserRegisterRepository:
 
         existing_email = await self.db.execute(select(UserModel).where(UserModel.email == user.email))
         if existing_email.scalars().first():
-            logger.info(f"Email {user.email} already in use.")
+            logging.info(f"Email {user.email} already in use.")
             print(f"Email {user.email} already in use.")
             raise HTTPException(status_code=400, detail="Email already in use.")
 
         existing_username = await self.db.execute(select(UserModel).where(UserModel.username == user.username))
         if existing_username.scalars().first():
             print(f"Username {user.username} already in use.")
-            logger.info(f"Username {user.username} already in use.")
+            logging.info(f"Username {user.username} already in use.")
             raise HTTPException(status_code=400, detail="Username already in use.")
 
 
@@ -102,7 +106,7 @@ class TokenRepository:
                 raise ValueError("JWT secret key or algorithm not set.")
             return jwt.encode(to_encode, secret_key, algorithm=algorithm)
         except Exception as e:
-            logger.error(f"Error creating token: {str(e)}")
+            logging.error(f"Error creating token: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to create token.")
 
 
@@ -143,10 +147,10 @@ class UserLoginRepository:
                 'access_token': TokenRepository.create_access_token(token_data),
                 'user': user_data
             }
-            logger.info(f"User {user.username} logged in successfully.")
+            logging.info(f"User {user.username} logged in successfully.")
             return new_data
         except HTTPException as e:
-            logger.error(f"Error logger in user: {str(e)}")
+            logging.error(f"Error logging in user: {str(e)}")
             raise HTTPException(status_code=500, detail=f"{str(e)}")
 
     def __verify_password(self, password: str, hashed_password: str) -> bool:
