@@ -169,10 +169,8 @@ async def create_table_from_components(table_data : TableCreateRequest, db: Asyn
             data = await repository.create_table_from_components(table_data, user_id=user_info.get('id'))
             return data
         except HTTPException as e:
-            print(f'Error creating table from components: {str(e)}')
             return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
     else:
-        print(f'Error creating table from components: ')
         return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
 
 

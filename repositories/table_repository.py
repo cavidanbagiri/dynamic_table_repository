@@ -789,8 +789,8 @@ class SearchPublicTableRepository:
     async def search_public_table(self, search_keyword: str, user_id: int):
         try:
             # Validate search keyword
-            if not search_keyword or not search_keyword.strip():
-                raise HTTPException(status_code=400, detail="Search keyword cannot be empty")
+            # if not search_keyword or not search_keyword.strip():
+            #     raise HTTPException(status_code=400, detail="Search keyword cannot be empty")
 
             # Parameterized query to prevent SQL injection
             query = text("""

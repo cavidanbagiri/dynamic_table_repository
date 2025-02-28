@@ -98,6 +98,22 @@ async def create_table(file: UploadFile = File(...), table_status: str = Form(..
         return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
 
 
+
+# Checked
+@router.delete("/deletetable/{table_name}")
+async def delete_table(table_name: str, db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
+    repository = DeleteTableRepository(db)
+    if user_info:
+        try:
+            data = await repository.delete_table(table_name, user_info.get('id'))
+            return data
+        except HTTPException as e:
+            return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+    else:
+        return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
+
+
+
 # Checked
 @router.get("/fetch/{table_name}")
 async def fetch_table(table_name: str, db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
@@ -127,19 +143,6 @@ async def filter_table_by_headers(table_name: str, request: Request, db: AsyncSe
     else:
         return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
 
-
-# Checked
-@router.delete("/deletetable/{table_name}")
-async def delete_table(table_name: str, db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
-    repository = DeleteTableRepository(db)
-    if user_info:
-        try:
-            data = await repository.delete_table(table_name, user_info.get('id'))
-            return data
-        except HTTPException as e:
-            return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
-    else:
-        return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
 
 
 # Checked
