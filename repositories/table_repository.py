@@ -7,6 +7,8 @@ import pandas as pd
 
 from typing import Optional, Dict
 
+from sqlparse import parse as sqlparse_parse
+
 import sqlparse
 from fastapi import UploadFile, HTTPException
 
@@ -916,8 +918,83 @@ class CreateTableFromReadyComponentsRepository(TableValidationRepository):
 
 
 
+# class ContainsRestrictedTablesRepository:
+#
+#     @staticmethod
+#     def is_valid_sql(query: str) -> bool:
+#         try:
+#             parsed = sqlparse.parse(query)
+#             return len(parsed) > 0
+#         except Exception:
+#             return False
+#
+#
+#     @staticmethod
+#     def contains_restricted_tables(query: str) -> bool:
+#         """
+#         Check if the query contains references to restricted tables.
+#         """
+#         restricted_tables = {"user_tables", "alembic_version", "table_definitions", "users", "favorite_tables"}  # Add all restricted table names here
+#
+#         # Parse the query
+#         parsed = sqlparse.parse(query)
+#         table_name = None
+#         for statement in parsed:
+#             for i, token in enumerate(statement.tokens):
+#                 # Check if the token is a keyword (e.g., FROM, JOIN, INTO, UPDATE)
+#                 if token.is_keyword and token.value.upper() in {"FROM", "JOIN", "INTO", "UPDATE"}:
+#                     # Iterate through the next tokens to find the table name
+#                     j = i + 1
+#                     while j < len(statement.tokens):
+#                         next_token = statement.tokens[j]
+#
+#                         # Skip whitespace and other irrelevant tokens
+#                         if next_token.is_whitespace or next_token.value in {',', '(', ')'}:
+#                             j += 1
+#                             continue
+#
+#                         # Extract the table name from the token
+#                         table_name = next_token.value.strip().split()[0].strip("`\"'[]")  # Handle quoted table names
+#
+#                         if table_name.lower() in restricted_tables:
+#                             return True
+#                         break  # Exit after processing the first non-whitespace token
+#
+#         return False
+
+# class SelectQueryRepository:
+#
+#     async def execute_select_query(self, query: str) -> dict:
+#         """
+#         Execute a SELECT query and return the results.
+#         """
+#         start_time = time.time()
+#         result = await self.db.execute(text(query))
+#
+#         # Check if the result has any rows
+#         if result.rowcount == 0:
+#             return await self.zero_rows()
+#
+#         # Convert RowMapping objects to dictionaries
+#         rows = result.mappings().all()
+#         data = [dict(row) for row in rows]  # Convert each RowMapping to a dictionary
+#
+#         # Extract headers (column names)
+#         headers = list(data[0].keys()) if data else []
+#
+#         execution_time = time.time() - start_time
+#         return {
+#             "data": data[:100],  # Limit to 100 results
+#             "total_rows": len(data),  # Total rows fetched
+#             "execution_time": execution_time.__round__(4),
+#             "original_table_name": self.table_name,
+#             "headers": headers
+#         }
+
+
 
 # Execute SQL Query
+
 class ExecuteQueryRepository:
 
     def __init__(self, db: AsyncSession):
@@ -926,37 +1003,31 @@ class ExecuteQueryRepository:
 
     async def execute_query(self, query: str) -> object:
         try:
-            # Validate the SQL query
+
+            # 1 - Validate the SQL query
             if not self.is_valid_sql(query):
                 raise HTTPException(status_code=400, detail="Invalid SQL query")
 
-            # Check if the query attempts to access restricted tables
+            # 2 - Check if the query attempts to access restricted tables
             if self.contains_restricted_tables(query):
                 raise HTTPException(status_code=403, detail="Access to restricted tables is not allowed")
 
-            # Execute the query
-            start_time = time.time()
-            result = await self.db.execute(text(query))
 
-            # Check if the result has any rows
-            if result.rowcount == 0:
-                return await self.zero_rows()
+            # 3 - Check query type
+            print('.....................................3 start .....................................')
+            query_type = self.get_query_type(query)
+            print(f'query_type::::::::::::::::::; {query_type}')
 
-            # Use mappings to get all columns
-            temp = result.mappings().all()
+            if query_type.strip().upper() == 'SELECT':
+                print('enter if select')
+                return await self.execute_select_query(query)
 
-            headers = []
-            for key in temp[0].keys():
-                headers.append(key)
+            elif query_type == 'INSERT':
+                print('enter elid insert')
+                return await self.execute_write_query(query, query_type)
 
-            execution_time = time.time() - start_time
-            return {
-                "data": temp[:100],  # Limit to 100 results
-                "total_rows": len(temp),  # Total rows fetched
-                "execution_time": execution_time.__round__(4),
-                "original_table_name": self.table_name,
-                "headers": headers
-            }
+
+
         except ProgrammingError as e:
             error_message = str(e.orig).lower()
             if "does not exist" in error_message and "relation" in error_message:
@@ -970,6 +1041,76 @@ class ExecuteQueryRepository:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error executing query: {str(e)}")
 
+
+    # Find query type, {insert, select, update, delete}
+    def get_query_type(self, query: str) -> str:
+        """
+        Determines the type of SQL query (SELECT, INSERT, UPDATE, DELETE).
+        """
+        parsed = sqlparse.parse(query)
+        if not parsed:
+            raise HTTPException(status_code=400, detail="Invalid SQL query")
+
+        # Get the first statement (in case of multiple statements)
+        first_statement = parsed[0]
+        print(f'>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>1 {first_statement}')
+        # Iterate through the tokens to find the first keyword
+        for token in first_statement.tokens:
+            if token.is_keyword and token.value.upper() in {"SELECT", "INSERT", "UPDATE", "DELETE"}:
+                print(f'>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>2 {token}')
+                print(f'>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>2 {token.value}')
+                return token.value.upper()
+
+        # If no valid keyword is found, raise an error
+        raise HTTPException(status_code=400, detail="Unsupported query type")
+
+
+    async def execute_select_query(self, query: str) -> dict:
+        """
+        Execute a SELECT query and return the results.
+        """
+        start_time = time.time()
+        result = await self.db.execute(text(query))
+
+        # Check if the result has any rows
+        if result.rowcount == 0:
+            return await self.zero_rows()
+
+        # Convert RowMapping objects to dictionaries
+        rows = result.mappings().all()
+        data = [dict(row) for row in rows]  # Convert each RowMapping to a dictionary
+
+        # Extract headers (column names)
+        headers = list(data[0].keys()) if data else []
+
+        execution_time = time.time() - start_time
+        return {
+            "data": data[:100],  # Limit to 100 results
+            "total_rows": len(data),  # Total rows fetched
+            "execution_time": execution_time.__round__(4),
+            "original_table_name": self.table_name,
+            "headers": headers
+        }
+
+
+    # If the type is insert, update, or delete
+    async def execute_write_query(self, query: str, query_type: str) -> dict:
+        """
+        Execute INSERT, UPDATE, or DELETE queries and return the number of affected rows.
+        """
+        start_time = time.time()
+        result = await self.db.execute(text(query))
+        await self.db.commit()  # Commit the transaction for write operations
+
+        execution_time = time.time() - start_time
+        return {
+            "message": f"{query_type} operation successful",
+            "affected_rows": result.rowcount,
+            "execution_time": execution_time.__round__(4),
+        }
+
+
+    # If nothing is return, need to send to frontend all headers
     async def zero_rows(self):
         start_time = time.time()
         headers = []
@@ -991,6 +1132,8 @@ class ExecuteQueryRepository:
             "headers": headers
         }
 
+
+    # Check if the query is true or not
     def is_valid_sql(self, query: str) -> bool:
         try:
             parsed = sqlparse.parse(query)
@@ -998,6 +1141,8 @@ class ExecuteQueryRepository:
         except Exception:
             return False
 
+
+    # Check the table name is available in restiricted tables or not
     def contains_restricted_tables(self, query: str) -> bool:
         """
         Check if the query contains references to restricted tables.
@@ -1029,4 +1174,3 @@ class ExecuteQueryRepository:
                         break  # Exit after processing the first non-whitespace token
         self.table_name = table_name
         return False
-

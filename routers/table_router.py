@@ -188,8 +188,19 @@ async def sql_query(
     repository = ExecuteQueryRepository(db)
     if user_info:
         try:
+            # get Query type for returning status code
+            query_type = repository.get_query_type(sql_query)
+
             data = await repository.execute_query(sql_query)
-            return data
+
+            if query_type == 'SELECT':
+                return JSONResponse(status_code=200, content=data)
+            elif query_type in ['INSERT', 'UPDATE', 'DELETE']:
+                return JSONResponse(status_code=201, content=data)
+            else:
+                return JSONResponse(status_code=400, content={"detail": "Invalid query type"})
+
+            # return data
         except HTTPException as e:
             return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
         except Exception as e:
