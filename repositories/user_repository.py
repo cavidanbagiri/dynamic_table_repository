@@ -1,5 +1,5 @@
 from fastapi import HTTPException
-from sqlalchemy import text, select
+from sqlalchemy import text, select, column, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.main_models import User as UserModel
@@ -38,10 +38,14 @@ class UserRegisterRepository:
 
 
             new_user = UserModel(
+                name = user.name,
+                middle_name = user.middle_name,
+                surname = user.surname,
                 username=user.username,
                 email=user.email,
                 password=self._hash_password(user.password),
             )
+            # print(f'new user is {new_user}')
             self.db.add(new_user)
             await self.db.commit()
             await self.db.refresh(new_user)
@@ -122,17 +126,34 @@ class UserLoginRepository:
         """
         try:
             # Fetch user using ORM for consistency
-            user = await self.db.execute(select(UserModel).where(UserModel.email == email))
-            user = user.scalars().first()
+            # user = await self.db.execute(select(UserModel).where(UserModel.email == email))
+            user = await self.db.execute(
+                select(
+                    UserModel.id,
+                    UserModel.username,
+                    UserModel.email,
+                    UserModel.password,
+                    # Concatenate name, middle_name, and surname into a single common_name
+                    func.concat(UserModel.name, ' ', UserModel.middle_name, ' ', UserModel.surname).label(
+                        "fullname"),
+                    UserModel.image_url
+                ).where(UserModel.email == email)
+            )
+
+            user = user.first()
+
             if not user:
                 raise HTTPException(status_code=404, detail="User not found")
             if not self.__verify_password(password, user.password):
                 raise HTTPException(status_code=401, detail="Incorrect password")
 
+
             user_data = {
                 "id": user.id,
                 "username": user.username,
-                "email": user.email
+                "email": user.email,
+                "fullname": user.fullname,
+                "profile_image": user.image_url
             }
             token_data = {
                 "id": user.id,
@@ -158,93 +179,3 @@ class UserLoginRepository:
         :return: True if password matches, False otherwise.
         """
         return self.pwd_context.verify(password, hashed_password)
-
-# from fastapi import HTTPException
-# from sqlalchemy import text, select
-# from sqlalchemy.ext.asyncio import AsyncSession
-#
-# from db.setup import SessionLocal
-# from models.main_models import User as UserModel
-#
-# from passlib.context import CryptContext
-#
-#
-# from datetime import datetime, timedelta, timezone
-#
-# import jwt
-# import os
-#
-# class UserRegisterRepository:
-#
-#     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-#
-#     def __init__(self, db: AsyncSession):
-#         self.db= db
-#
-#     async def register_user(self, user: UserModel):
-#
-#         user = UserModel(
-#             username=user.username,
-#             email=user.email,
-#             password=self._hash_password(user.password),
-#         )
-#         self.db.add(user)
-#         await self.db.commit()
-#         await self.db.refresh(user)
-#         user_data = {
-#             "id": user.id,
-#             "username": user.username,
-#             "email": user.email
-#         }
-#         return user_data
-#
-#     def _hash_password(self, password: str):
-#         return self.pwd_context.hash(password)
-#
-#
-# class TokenRepository:
-#
-#     # Create Access Token
-#     @staticmethod
-#     def create_access_token( data):
-#         to_encode = data
-#         to_encode.update({"exp": datetime.now(timezone.utc) + timedelta(hours=12) })
-#         return jwt.encode(to_encode, os.getenv('JWT_SECRET_KEY'), algorithm=os.getenv('JWT_ALGORITHM'))
-#
-#
-# class UserLoginRepository:
-#     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-#
-#     def __init__(self, db: AsyncSession):
-#         self.db = db
-#
-#     async def login(self, email:str, password:str):
-#         # async with SessionLocal() as session:
-#         finded_user = await self.db.execute(text("SELECT * FROM users WHERE email = :email"), {"email": email})
-#         user = finded_user.mappings().first()
-#         if not user:
-#             raise HTTPException(status_code=400, detail="User not found")
-#         if not self.__verify_password(password, user.password):
-#             raise HTTPException(status_code=400, detail="Incorrect password")
-#         user_data = {
-#             "id": user.id,
-#             "username": user.username,
-#             "email": user.email
-#         }
-#         token_data = {
-#             "id": user.id,
-#             "username": user.username,
-#             "email": user.email
-#         }
-#         new_data = {
-#             'access_token': TokenRepository.create_access_token(token_data),
-#             'user': user_data
-#         }
-#         return new_data
-#
-#
-#
-#
-#     def __verify_password(self, password, hashed_password):
-#         return self.pwd_context.verify(password, hashed_password)
-#
