@@ -10,7 +10,7 @@ from db.setup import get_db
 from dependecies.authorization import TokenVerifyMiddleware
 from repositories.table_repository import CreateTableRepository, FetchTableRepository, ExecuteQueryRepository, \
     FetchPublicTablesRepository, FavoriteTableRepository, FetchTableWithHeaderFilterRepository, FetchMyTablesRepository, \
-    DeleteTableRepository, SearchPublicTableRepository, CreateTableFromReadyComponentsRepository
+    DeleteTableRepository, SearchPublicTableRepository, CreateTableFromReadyComponentsRepository, GetQueryTypeRepository
 
 from schemas.table_schemas import QueryRequest, TableCreateRequest
 
@@ -189,9 +189,9 @@ async def sql_query(
     if user_info:
         try:
             # get Query type for returning status code
-            query_type = repository.get_query_type(sql_query)
+            query_type = GetQueryTypeRepository.get_query_type(sql_query)
 
-            data = await repository.execute_query(sql_query)
+            data = await repository.execute_query(sql_query, user_info)
 
             if query_type == 'SELECT':
                 return JSONResponse(status_code=200, content=data)
