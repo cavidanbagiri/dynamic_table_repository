@@ -197,6 +197,8 @@ async def sql_query(
                 return JSONResponse(status_code=200, content=data)
             elif query_type in ['INSERT', 'UPDATE', 'DELETE']:
                 return JSONResponse(status_code=201, content=data)
+            elif query_type == 'CREATE':
+                return JSONResponse(status_code=201, content=data)
             else:
                 return JSONResponse(status_code=400, content={"detail": "Invalid query type"})
 
