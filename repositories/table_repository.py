@@ -2,7 +2,7 @@
 import time
 import re
 import sys
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 
 import pandas as pd
 
@@ -16,7 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError, ProgrammingError
 from sqlalchemy.sql import text
 from sqlalchemy.orm import joinedload, aliased
 from sqlalchemy import Table, Column, Integer, String, MetaData, select, and_, or_, Float, Date, delete, Boolean, \
-    exists
+    exists, inspect
 from sqlalchemy.sql.ddl import CreateTable
 from typing import List, Tuple
 
@@ -219,10 +219,11 @@ class FetchMyTablesRepository:
                 if not row["UserTable"].table_definition:
                     logging.warning(f"Missing table definition for user_id: {user_id}")
                     continue
-
+                id = row["UserTable"].table_id
                 table_name = row["UserTable"].table_definition.table_name
                 result_list.append(
                     {
+                        "id": id,
                         "table_name": table_name.replace('_', ' ').title(),
                         "original_table_name": table_name,
                     }
@@ -433,7 +434,8 @@ class DeleteTableRepository:
             await self.db.execute(delete(TableDefinition).where(TableDefinition.id == table.id))
             await self.db.execute(delete(FavoriteTables).where(FavoriteTables.table_id == table.id))
             await self.db.commit()
-            return {"message": "Table deleted successfully"}
+            return {"message": "Table deleted successfully", "table_id": table.id}
+
 
         except HTTPException:
             raise  # Re-raise HTTPException as is
@@ -930,6 +932,60 @@ class ExecuteQueryRepository:
             raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 
+
+class CheckTableNameAvailabilityRepository:
+
+    @staticmethod
+    async def check_table_already_exists(table_name: str, session: AsyncSession):
+        print('some checking')
+        """Check if the table already exists in the database."""
+        query = text("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = :table_name)")
+        result = await session.execute(query, {"table_name": table_name})
+        if result.scalar():
+            logging.error(f"Table already exists: {table_name}")
+            raise HTTPException(status_code=400, detail="Table already exists.")
+
+class CreateTableDefinitionRepository:
+
+    @staticmethod
+    async def create_table_definition(table_status: str, table_description: str, table_name: str, table_category: str, session: AsyncSession) -> int:
+        """Create a TableDefinition record in the database."""
+        table_definition = TableDefinition(
+            table_name=table_name,
+            table_status=table_status,
+            table_description=table_description,
+            category=table_category
+        )
+        session.add(table_definition)
+        await session.commit()
+        await session.refresh(table_definition)
+        logging.debug(f"TableDefinition created: {table_definition.id}")
+        return table_definition.id
+
+class DeleteTableDefinitionRepository:
+
+    @staticmethod
+    async def delete_table_definition(table_id: int):
+        """Delete a TableDefinition record from the database."""
+        async with SessionLocal() as session:
+            table_definition = await session.execute(select(TableDefinition).where(TableDefinition.id == table_id))
+            table_definition = table_definition.scalars().first()
+            await session.delete(table_definition)
+            await session.commit()
+            logging.debug(f"TableDefinition deleted: {table_id}")
+
+class CreateUserRepository:
+
+    @staticmethod
+    async def create_user_tables(user_id: int, table_id: int, session: AsyncSession):
+        """Create a UserTable record in the database."""
+        user_table = UserTable(user_id=user_id, table_id=table_id)
+        session.add(user_table)
+        logging.debug(f"UserTable created for user {user_id} and table {table_id}.")
+
+
+
+
 # Create table by query
 class CreateTableQueryRepository:
     def __init__(self, db: AsyncSession):
@@ -939,20 +995,45 @@ class CreateTableQueryRepository:
         """
         Execute a CREATE TABLE query and return the result.
         """
-        # Validate the query type
+        # 1 - Validate the query type
+
+        table_definition_id : int = 0
+
         query_type = GetQueryTypeRepository.get_query_type(query)
         if query_type != "CREATE":
             raise HTTPException(status_code=400, detail="Invalid query type for table creation")
 
-        # Log the operation
-        self.log_operation(query, query_type, user_info)
+        # 2 - Extract the table name from the query
+        table_name = self._extract_table_name_from_query(query)
+        print(f'............................... {table_name}')
+        if not table_name:
+            raise HTTPException(status_code=400, detail="Could not extract table name from the query")
 
-        # Execute the query
-        start_time = time.time()
         try:
+            # 3 - Check if the table already exists
+            if await CheckTableNameAvailabilityRepository.check_table_already_exists(table_name, self.db):
+                raise HTTPException(status_code=400, detail=f"Table '{table_name}' already exists")
+
+            # 4 - Create the table definition
+            table_definition_id = await CreateTableDefinitionRepository.create_table_definition('public', '', table_name, '', self.db)
+
+            # 5 - Create the user table
+            await CreateUserRepository.create_user_tables(user_info.get("id"), table_definition_id, self.db)
+
+
+            # Log the operation
+            self.log_operation(query, query_type, user_info)
+
+            # Execute the query
+            start_time = time.time()
+
             result = await self.db.execute(text(query))
             await self.db.commit()  # Commit the transaction for table creation
         except Exception as e:
+            logging.error(f"Error creating table: {str(e)}")
+            if table_definition_id != 0:
+                await DeleteTableDefinitionRepository.delete_table_definition(table_definition_id)
+
             await self.db.rollback()  # Rollback in case of error
 
             # Simplify the error message
@@ -967,11 +1048,34 @@ class CreateTableQueryRepository:
             "execution_time": execution_time.__round__(4),
         }
 
+
+    # Get table name from query
+    def _extract_table_name_from_query(self, query: str) -> str:
+        """
+        Extract the table name from a CREATE TABLE query.
+        """
+        # Simple parsing to extract the table name (for demonstration purposes)
+        # This can be improved with a proper SQL parser for complex queries
+        query_lower = query.lower()
+        if "create table" not in query_lower:
+            return None
+
+        # Extract the table name after "CREATE TABLE"
+        table_name_start = query_lower.find("create table") + len("create table")
+        table_name_end = query_lower.find("(", table_name_start)
+        if table_name_end == -1:
+            return None
+
+        table_name = query[table_name_start:table_name_end].strip()
+        return table_name
+
     def log_operation(self, query: str, query_type: str, user_info: dict):
         """
         Log the operation for auditing purposes.
         """
         logging.info(f"User {user_info.get('id')} performed {query_type} operation: {query}")
+
+
 
 # Create table by components - Checked + Optimized
 class CreateTableFromReadyComponentsRepository(TableValidationRepository):
@@ -1079,7 +1183,7 @@ class CreateTableRepository(TableValidationRepository):
                 logging.debug(f"Table name: {define_table_name}, Category: {table_category}")
 
                 # Check if table already exists
-                await self._check_table_already_exists(define_table_name, session)
+                await CheckTableNameAvailabilityRepository.check_table_already_exists(define_table_name, session)
                 logging.debug("Table does not already exist.")
 
                 # Read the file into a DataFrame
@@ -1095,7 +1199,7 @@ class CreateTableRepository(TableValidationRepository):
                 logging.debug("Column names validated successfully.")
 
                 # Create TableDefinition
-                table_id = await self._create_table_definition(table_status, table_description, define_table_name, table_category, session)
+                table_id = await CreateTableDefinitionRepository.create_table_definition(table_status, table_description, define_table_name, table_category, session)
                 logging.info(f"TableDefinition created with ID: {table_id}")
 
                 # Create the table and insert data
@@ -1105,7 +1209,7 @@ class CreateTableRepository(TableValidationRepository):
                 await self._insert_data(session, define_table_name, df)
                 logging.debug("Data inserted into the table.")
 
-                await self._create_user_tables(user_id, table_id, session)
+                await CreateUserRepository.create_user_tables(user_id, table_id, session)
                 logging.debug(f"UserTable created for user {user_id} and table {table_id}.")
 
                 await session.commit()
@@ -1119,7 +1223,7 @@ class CreateTableRepository(TableValidationRepository):
                 await session.rollback()
                 logging.error(f"Error creating table: {str(e)}", exc_info=True)
                 if 'table_id' in locals():
-                    await self._delete_table_definition(table_id)
+                    await DeleteTableDefinitionRepository.delete_table_definition(table_id)
                     logging.warning(f"Deleted TableDefinition with ID: {table_id} due to error.")
                 raise HTTPException(status_code=500, detail=f"Error creating table: {str(e)}")
 
@@ -1135,14 +1239,6 @@ class CreateTableRepository(TableValidationRepository):
             logging.error(f"Invalid file type: {file.filename}")
             raise HTTPException(status_code=400, detail="Invalid file type. Only .csv and .xlsx files are accepted.")
 
-    async def _check_table_already_exists(self, table_name: str, session: AsyncSession):
-        """Check if the table already exists in the database."""
-        query = text("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = :table_name)")
-        result = await session.execute(query, {"table_name": table_name})
-        if result.scalar():
-            logging.error(f"Table already exists: {table_name}")
-            raise HTTPException(status_code=400, detail="Table already exists.")
-
     def _read_the_file(self, file: UploadFile) -> pd.DataFrame:
         """Read the uploaded file into a DataFrame."""
         try:
@@ -1155,29 +1251,6 @@ class CreateTableRepository(TableValidationRepository):
         except Exception as e:
             logging.error(f"Error reading file: {str(e)}", exc_info=True)
             raise HTTPException(status_code=400, detail=f"Error reading file: {str(e)}")
-
-    async def _create_table_definition(self, table_status: str, table_description: str, table_name: str, table_category: str, session: AsyncSession) -> int:
-        """Create a TableDefinition record in the database."""
-        table_definition = TableDefinition(
-            table_name=table_name,
-            table_status=table_status,
-            table_description=table_description,
-            category=table_category
-        )
-        session.add(table_definition)
-        await session.commit()
-        await session.refresh(table_definition)
-        logging.debug(f"TableDefinition created: {table_definition.id}")
-        return table_definition.id
-
-    async def _delete_table_definition(self, table_id: int):
-        """Delete a TableDefinition record from the database."""
-        async with SessionLocal() as session:
-            table_definition = await session.execute(select(TableDefinition).where(TableDefinition.id == table_id))
-            table_definition = table_definition.scalars().first()
-            await session.delete(table_definition)
-            await session.commit()
-            logging.debug(f"TableDefinition deleted: {table_id}")
 
     async def _create_table_and_columns(self, session: AsyncSession, table_name: str, columns_alchemy: List[Column]):
         """Create the table and its columns in the database."""
@@ -1225,12 +1298,6 @@ class CreateTableRepository(TableValidationRepository):
         logging.debug("Data sanitized successfully.")
         return sanitized_data
 
-    async def _create_user_tables(self, user_id: int, table_id: int, session: AsyncSession):
-        """Create a UserTable record in the database."""
-        user_table = UserTable(user_id=user_id, table_id=table_id)
-        session.add(user_table)
-        logging.debug(f"UserTable created for user {user_id} and table {table_id}.")
-
     def _create_columns_according_to_datatypes(self, df: pd.DataFrame) -> Tuple[List[Column], List[str]]:
         """Create SQLAlchemy columns based on DataFrame dtypes."""
         inner_columns = []
@@ -1257,3 +1324,202 @@ class CreateTableRepository(TableValidationRepository):
             raise HTTPException(status_code=400, detail=f"Invalid column name: '{column_name}'.")
         return sanitized_name.lower()
 
+
+
+# # Create new table by excel, csv - Checked + Optimized
+# class CreateTableRepository(TableValidationRepository):
+#     def __init__(self, db: AsyncSession):
+#         self.db = db
+#
+#     async def create_table(self, user_id: int, file: UploadFile, table_status: str, table_description: str, table_name: str = None, table_category: str = None):
+#         async with SessionLocal() as session:
+#             try:
+#                 logging.info(f"Starting table creation for user {user_id}. Table name: {table_name}")
+#
+#                 # Validate inputs
+#                 self._validate_inputs(table_name, table_category, file)
+#                 logging.debug("Inputs validated successfully.")
+#
+#                 # Define table name and category
+#                 define_table_name = table_name.strip().lower()
+#                 table_category = table_category.strip().lower()
+#                 logging.debug(f"Table name: {define_table_name}, Category: {table_category}")
+#
+#                 # Check if table already exists
+#                 await self._check_table_already_exists(define_table_name, session)
+#                 logging.debug("Table does not already exist.")
+#
+#                 # Read the file into a DataFrame
+#                 df = self._read_the_file(file)
+#                 logging.debug(f"File read successfully. Rows: {len(df)}, Columns: {len(df.columns)}")
+#
+#                 # Create columns based on DataFrame dtypes
+#                 columns_alchemy, columns_names = self._create_columns_according_to_datatypes(df)
+#                 logging.debug(f"Columns created: {columns_names}")
+#
+#                 # Validate column names
+#                 TableValidationRepository.validate_column_names(columns_names)
+#                 logging.debug("Column names validated successfully.")
+#
+#                 # Create TableDefinition
+#                 table_id = await self._create_table_definition(table_status, table_description, define_table_name, table_category, session)
+#                 logging.info(f"TableDefinition created with ID: {table_id}")
+#
+#                 # Create the table and insert data
+#                 await self._create_table_and_columns(session, define_table_name, columns_alchemy)
+#                 logging.debug("Table and columns created in the database.")
+#
+#                 await self._insert_data(session, define_table_name, df)
+#                 logging.debug("Data inserted into the table.")
+#
+#                 await self._create_user_tables(user_id, table_id, session)
+#                 logging.debug(f"UserTable created for user {user_id} and table {table_id}.")
+#
+#                 await session.commit()
+#                 logging.info(f"Table '{define_table_name}' created successfully for user {user_id}.")
+#                 return {'message': 'Table created successfully'}
+#
+#             except HTTPException as e:
+#                 logging.error(f"HTTPException: {e.detail}")
+#                 raise  # Re-raise HTTPException
+#             except Exception as e:
+#                 await session.rollback()
+#                 logging.error(f"Error creating table: {str(e)}", exc_info=True)
+#                 if 'table_id' in locals():
+#                     await self._delete_table_definition(table_id)
+#                     logging.warning(f"Deleted TableDefinition with ID: {table_id} due to error.")
+#                 raise HTTPException(status_code=500, detail=f"Error creating table: {str(e)}")
+#
+#     def _validate_inputs(self, table_name: str, table_category: str, file: UploadFile):
+#         """Validate user inputs."""
+#         if not table_name:
+#             logging.error("Table name is required.")
+#             raise HTTPException(status_code=400, detail="Table name is required.")
+#         if not TableValidationRepository.is_valid_name(table_name):
+#             logging.error(f"Invalid table name: {table_name}")
+#             raise HTTPException(status_code=400, detail="Table name must be alphanumeric and can include underscores.")
+#         if not file.filename.endswith(('.csv', '.xlsx')):
+#             logging.error(f"Invalid file type: {file.filename}")
+#             raise HTTPException(status_code=400, detail="Invalid file type. Only .csv and .xlsx files are accepted.")
+#
+#     async def _check_table_already_exists(self, table_name: str, session: AsyncSession):
+#         """Check if the table already exists in the database."""
+#         query = text("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = :table_name)")
+#         result = await session.execute(query, {"table_name": table_name})
+#         if result.scalar():
+#             logging.error(f"Table already exists: {table_name}")
+#             raise HTTPException(status_code=400, detail="Table already exists.")
+#
+#     def _read_the_file(self, file: UploadFile) -> pd.DataFrame:
+#         """Read the uploaded file into a DataFrame."""
+#         try:
+#             if file.filename.endswith('.csv'):
+#                 df = pd.read_csv(file.file)
+#             else:
+#                 df = pd.read_excel(file.file)
+#             logging.debug(f"File read successfully: {file.filename}")
+#             return df
+#         except Exception as e:
+#             logging.error(f"Error reading file: {str(e)}", exc_info=True)
+#             raise HTTPException(status_code=400, detail=f"Error reading file: {str(e)}")
+#
+#     async def _create_table_definition(self, table_status: str, table_description: str, table_name: str, table_category: str, session: AsyncSession) -> int:
+#         """Create a TableDefinition record in the database."""
+#         table_definition = TableDefinition(
+#             table_name=table_name,
+#             table_status=table_status,
+#             table_description=table_description,
+#             category=table_category
+#         )
+#         session.add(table_definition)
+#         await session.commit()
+#         await session.refresh(table_definition)
+#         logging.debug(f"TableDefinition created: {table_definition.id}")
+#         return table_definition.id
+#
+#     async def _delete_table_definition(self, table_id: int):
+#         """Delete a TableDefinition record from the database."""
+#         async with SessionLocal() as session:
+#             table_definition = await session.execute(select(TableDefinition).where(TableDefinition.id == table_id))
+#             table_definition = table_definition.scalars().first()
+#             await session.delete(table_definition)
+#             await session.commit()
+#             logging.debug(f"TableDefinition deleted: {table_id}")
+#
+#     async def _create_table_and_columns(self, session: AsyncSession, table_name: str, columns_alchemy: List[Column]):
+#         """Create the table and its columns in the database."""
+#         metadata = MetaData()
+#         table = Table(
+#             table_name, metadata,
+#             Column('id', Integer, primary_key=True),
+#             *columns_alchemy
+#         )
+#         await session.execute(CreateTable(table))
+#         logging.debug(f"Table created: {table_name}")
+#
+#     async def _insert_data(self, session: AsyncSession, table_name: str, data: pd.DataFrame):
+#         """Insert data into the table."""
+#         sanitized_data = self._sanitize_data(data)
+#         columns = ', '.join(sanitized_data[0].keys())
+#         placeholders = ', '.join([f":{key}" for key in sanitized_data[0].keys()])
+#         query = text(f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})")
+#
+#         try:
+#             await session.execute(query, sanitized_data)
+#             logging.debug(f"Data inserted into table: {table_name}")
+#         except SQLAlchemyError as e:
+#             logging.error(f"Error inserting data: {str(e)}", exc_info=True)
+#             raise HTTPException(status_code=500, detail=f"Error inserting data: {str(e)}")
+#
+#     def _sanitize_data(self, data: pd.DataFrame) -> List[dict]:
+#         """Sanitize column names and convert values to the appropriate data type."""
+#         sanitized_data = []
+#         for _, row in data.iterrows():
+#             row_data = {}
+#             for column_name, value in row.items():
+#                 sanitized_column_name = re.sub(r'[^a-zA-Z0-9_]', '_', column_name.strip())
+#                 if pd.isna(value):
+#                     row_data[sanitized_column_name] = None
+#                 elif pd.api.types.is_integer_dtype(data[column_name].dtype):
+#                     row_data[sanitized_column_name] = int(value)
+#                 elif pd.api.types.is_float_dtype(data[column_name].dtype):
+#                     row_data[sanitized_column_name] = float(value)
+#                 elif pd.api.types.is_datetime64_any_dtype(data[column_name].dtype):
+#                     row_data[sanitized_column_name] = pd.to_datetime(value).to_pydatetime()
+#                 else:
+#                     row_data[sanitized_column_name] = str(value)
+#             sanitized_data.append(row_data)
+#         logging.debug("Data sanitized successfully.")
+#         return sanitized_data
+#
+#     async def _create_user_tables(self, user_id: int, table_id: int, session: AsyncSession):
+#         """Create a UserTable record in the database."""
+#         user_table = UserTable(user_id=user_id, table_id=table_id)
+#         session.add(user_table)
+#         logging.debug(f"UserTable created for user {user_id} and table {table_id}.")
+#
+#     def _create_columns_according_to_datatypes(self, df: pd.DataFrame) -> Tuple[List[Column], List[str]]:
+#         """Create SQLAlchemy columns based on DataFrame dtypes."""
+#         inner_columns = []
+#         column_names = []
+#         for column_name, dtype in df.dtypes.items():
+#             sanitized_column_name = self._sanitize_column_name(column_name)
+#             if pd.api.types.is_integer_dtype(dtype):
+#                 inner_columns.append(Column(sanitized_column_name, Integer))
+#             elif pd.api.types.is_float_dtype(dtype):
+#                 inner_columns.append(Column(sanitized_column_name, Float))
+#             elif pd.api.types.is_datetime64_any_dtype(dtype):
+#                 inner_columns.append(Column(sanitized_column_name, Date))
+#             else:
+#                 inner_columns.append(Column(sanitized_column_name, String))
+#             column_names.append(sanitized_column_name)
+#         logging.debug(f"Columns created: {column_names}")
+#         return inner_columns, column_names
+#
+#     def _sanitize_column_name(self, column_name: str) -> str:
+#         """Sanitize a column name."""
+#         sanitized_name = column_name.strip().replace(' ', '_').replace('.', '_').replace('/', '_').replace('\\', '_').replace('-', '_')
+#         if not self.is_valid_name(sanitized_name):
+#             logging.error(f"Invalid column name: {column_name}")
+#             raise HTTPException(status_code=400, detail=f"Invalid column name: '{column_name}'.")
+#         return sanitized_name.lower()

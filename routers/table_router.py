@@ -187,6 +187,7 @@ async def sql_query(
 
     repository = ExecuteQueryRepository(db)
     if user_info:
+        print(f'11111111111111')
         try:
             # get Query type for returning status code
             query_type = GetQueryTypeRepository.get_query_type(sql_query)
@@ -204,8 +205,8 @@ async def sql_query(
 
             # return data
         except HTTPException as e:
-            return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+            return JSONResponse(status_code=e.status_code, content={"message": e.detail})
         except Exception as e:
-            return JSONResponse(status_code=500, content={"detail": f"An error occurred: {str(e)}"})
+            return JSONResponse(status_code=500, content={"message": f"An error occurred: {str(e)}"})
     else:
-        return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
+        return JSONResponse(status_code=401, content={"message": 'Please login before creating a table'})
