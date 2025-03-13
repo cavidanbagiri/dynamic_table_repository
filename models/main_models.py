@@ -25,12 +25,25 @@ class User(Base):
         return f"User(name={self.username}, email={self.email})"
 
 
+
+class TokenModel(Base):
+    __tablename__ = "tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    token = Column(String, nullable=False)
+
+    def __repr__(self):
+        return f"TokenModel(user_id={self.user_id}, token={self.token})"
+
+
 class UserTable(Base):
     __tablename__ = "user_tables"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    table_id = Column(Integer, ForeignKey("table_definitions.id"))
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    table_id = Column(Integer, ForeignKey("table_definitions.id"), nullable=False)
 
     user = relationship("User", back_populates="user_tables")
 
@@ -45,10 +58,10 @@ class UserTable(Base):
 class TableDefinition(Base):
     __tablename__ = "table_definitions"
 
-    id = Column(Integer, primary_key=True, index=True)
-    table_name = Column(String, unique=True, index=True)
-    table_status = Column(String, index=True)
-    table_description = Column(Text)
+    id = Column(Integer, primary_key=True, index=True, nullable=False)
+    table_name = Column(String, unique=True, index=True, nullable=False)
+    table_status = Column(String, index=True, nullable=False)
+    table_description = Column(Text, nullable=True)
     category = Column(String, nullable=True)
 
     user_tables = relationship("UserTable", back_populates="table_definition")

@@ -28,6 +28,7 @@ async def fetch_public_tables(user_id: Optional[int] = None, db: AsyncSession = 
 # Checked - Fetch all my tables
 @router.get("/fetchmytables", status_code=200)
 async def fetch_my_tables(db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
+    print(f'.................user_info: {user_info}')
     repository = FetchMyTablesRepository(db)
     if user_info:
         try:
