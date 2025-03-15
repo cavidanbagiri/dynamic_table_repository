@@ -11,11 +11,15 @@ from passlib.context import CryptContext
 
 import logging
 
+logging.basicConfig(filename='user.log', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Checked
 class UserRegisterRepository:
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+    # Blocklist of reserved usernames
+    BLOCKED_USERNAMES = {"admin", "null", "root", "system", "superuser"}
 
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -30,8 +34,13 @@ class UserRegisterRepository:
         try:
 
             # Validate input data
+            user.username = user.username.strip()
             if not user.username or not user.email or not user.password:
                 raise HTTPException(status_code=400, detail="Username, email, and password are required.")
+
+            # Check if the username is blocked
+            self._validate_username(user.username)
+
 
             await self._check_username_email_exists(user)
 
@@ -52,7 +61,8 @@ class UserRegisterRepository:
                 "username": new_user.username,
                 "email": new_user.email
             }
-            logger.info(f"User {new_user.username} registered successfully.")
+            # logger.info(f"User {new_user.username} registered successfully.")
+            logger.info(f"User registered successfully: {new_user.username} (ID: {new_user.id})")
             return user_data
         except HTTPException as e:
             await self.db.rollback()
@@ -78,14 +88,27 @@ class UserRegisterRepository:
         existing_email = await self.db.execute(select(UserModel).where(UserModel.email == user.email))
         if existing_email.scalars().first():
             logger.info(f"Email {user.email} already in use.")
-            print(f"Email {user.email} already in use.")
             raise HTTPException(status_code=400, detail="Email already in use.")
 
         existing_username = await self.db.execute(select(UserModel).where(UserModel.username == user.username))
         if existing_username.scalars().first():
-            print(f"Username {user.username} already in use.")
             logger.info(f"Username {user.username} already in use.")
             raise HTTPException(status_code=400, detail="Username already in use.")
+
+    def _validate_username(self, username: str) -> None:
+        """
+        Validates the username against a blocklist of reserved usernames.
+
+        :param username: The username to validate.
+        :raises HTTPException: If the username is blocked.
+        """
+        if username in self.BLOCKED_USERNAMES:
+            logger.info(f"Blocked username attempt: {username}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"The username '{username}' is reserved and cannot be used.",
+            )
+
 
 
 # Checked

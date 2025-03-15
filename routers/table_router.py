@@ -16,19 +16,11 @@ from schemas.table_schemas import QueryRequest, TableCreateRequest
 
 router = APIRouter()
 
-# Checked - Fetch all public tables
-@router.get("/fetchpublictables", status_code=200)
-async def fetch_public_tables(user_id: Optional[int] = None, db: AsyncSession = Depends(get_db)):
-
-    repository = FetchPublicTablesRepository(db)
-    data = await repository.fetch_public_tables(user_id=user_id)
-    return data
 
 
 # Checked - Fetch all my tables
 @router.get("/fetchmytables", status_code=200)
 async def fetch_my_tables(db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
-    print(f'.................user_info: {user_info}')
     repository = FetchMyTablesRepository(db)
     if user_info:
         try:
@@ -38,6 +30,19 @@ async def fetch_my_tables(db: AsyncSession = Depends(get_db), user_info = Depend
             return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
     else:
         return JSONResponse(status_code=401, content={"detail": 'Please login before creating a table'})
+
+
+
+
+
+
+# Checked - Fetch all public tables
+@router.get("/fetchpublictables", status_code=200)
+async def fetch_public_tables(user_id: Optional[int] = None, db: AsyncSession = Depends(get_db)):
+
+    repository = FetchPublicTablesRepository(db)
+    data = await repository.fetch_public_tables(user_id=user_id)
+    return data
 
 
 # Checked - Fetch all Favorite tables

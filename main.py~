@@ -37,3 +37,6 @@ app.include_router(user_router.router, prefix="/api/user", tags=["Users"])
 app.include_router(table_router.router, prefix="/api/table", tags=["Tables"])
 app.include_router(profile_router.router, prefix="/api/profile", tags=["Profiles"])
 
+# app.include_router(user_router.router, prefix="/api/user")
+# app.include_router(table_router.router, prefix="/api/table")
+# app.include_router(profile_router.router, prefix="/api/profile")
