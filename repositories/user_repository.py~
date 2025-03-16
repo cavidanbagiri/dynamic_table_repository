@@ -14,8 +14,7 @@ import logging
 user_logger = logging.getLogger("user_logger")
 user_logger.setLevel(logging.INFO)
 user_handler = logging.FileHandler("logs/userlog.log")
-# user_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s - %(message)s'))
-user_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s - [File: %(filename)s] - %(message)s'))
+user_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s - %(message)s'))
 user_logger.addHandler(user_handler)
 
 # Checked

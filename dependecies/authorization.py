@@ -1,4 +1,4 @@
-import asyncio
+
 import os
 import logging
 
@@ -13,7 +13,12 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-logger = logging.getLogger(__name__)
+user_logger = logging.getLogger("user_logger")
+user_logger.setLevel(logging.INFO)
+user_handler = logging.FileHandler("logs/userlog.log")
+# user_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s - %(message)s'))
+user_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s - [File: %(filename)s] - %(message)s'))
+user_logger.addHandler(user_handler)
 
 from models.main_models import TokenModel
 
@@ -35,10 +40,11 @@ class TokenRepository:
             secret_key = os.getenv('JWT_SECRET_KEY')
             algorithm = os.getenv('JWT_ALGORITHM')
             if not secret_key or not algorithm:
+                user_logger.error("JWT secret key or algorithm not set.")
                 raise ValueError("JWT secret key or algorithm not set.")
             return jwt.encode(to_encode, secret_key, algorithm=algorithm)
         except Exception as e:
-            logger.error(f"Error creating access token: {str(e)}")
+            user_logger.error(f"Error creating access token: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to create access token.")
 
     @staticmethod
@@ -55,10 +61,11 @@ class TokenRepository:
             secret_key = os.getenv('JWT_REFRESH_SECRET_KEY')
             algorithm = os.getenv('JWT_ALGORITHM')
             if not secret_key or not algorithm:
+                user_logger.error("JWT refresh secret key or algorithm not set.")
                 raise ValueError("JWT refresh secret key or algorithm not set.")
             return jwt.encode(to_encode, secret_key, algorithm=algorithm)
         except Exception as e:
-            logger.error(f"Error creating refresh token: {str(e)}")
+            user_logger.error(f"Error creating refresh token: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to create refresh token.")
 
 
@@ -97,8 +104,8 @@ class VerifyRefreshTokenMiddleware:
         refresh_token = request.cookies.get('refresh_token')
 
         if not refresh_token:
-            logger.warning("Refresh token is missing")
-            raise HTTPException(status_code=400, detail="Refresh token is missing")
+            user_logger.warning("Please login before executing")
+            raise HTTPException(status_code=400, detail="Please login before executing")
 
         try:
             # Decode the refresh token
@@ -121,7 +128,7 @@ class VerifyRefreshTokenMiddleware:
             await UpdateRefreshTokenRepository(self.db).update_refresh_token(payload['id'], new_refresh_token)
 
             # Log successful token refresh
-            logger.info(f"New tokens issued for user: {user_id}")
+            user_logger.info(f"New tokens issued for user: {user_id}")
 
             # Save the new refresh token
             # await SaveRefreshTokenRepository(self.db).save_refresh_token(payload['id'], new_refresh_token)
@@ -134,15 +141,15 @@ class VerifyRefreshTokenMiddleware:
 
 
         except jwt.ExpiredSignatureError:
-            logger.warning("Expired refresh token")
+            user_logger.warning("Expired refresh token")
             raise HTTPException(status_code=401, detail="Expired refresh token")
 
         except jwt.InvalidTokenError as e:
-            logger.warning(f"Invalid refresh token: {str(e)}")
+            user_logger.warning(f"Invalid refresh token: {str(e)}")
             raise HTTPException(status_code=401, detail="Invalid refresh token")
 
         except Exception as e:
-            logger.error(f"Unexpected error validating refresh token: {str(e)}", exc_info=True)
+            user_logger.error(f"Unexpected error validating refresh token: {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail="An error occurred while validating the refresh token")
 
 
@@ -169,9 +176,9 @@ class SaveRefreshTokenRepository:
             self.db.add(refresh_token_model)
             await self.db.commit()
             await self.db.refresh(refresh_token_model)
-            logger.info(f"Refresh token saved for user: {user_id}")
+            user_logger.info(f"Refresh token saved for user: {user_id}")
         except Exception as e:
-            logger.error(f"Error saving refresh token: {str(e)}")
+            user_logger.error(f"Error saving refresh token: {str(e)}")
             raise
 
 
@@ -192,7 +199,7 @@ class UpdateRefreshTokenRepository:
             )
             await self.db.commit()
         except Exception as e:
-            logger.error(f"Error updating refresh token: {str(e)}")
+            user_logger.error(f"Error updating refresh token: {str(e)}")
 
 
 
@@ -211,9 +218,9 @@ class DeleteRefreshTokenRepository:
                 delete(TokenModel).where(TokenModel.user_id == user_id)
             )
             await self.db.commit()
-            logger.info(f"Refresh token deleted for user {user_id}.")
+            user_logger.info(f"Refresh token deleted for user {user_id}.")
         except Exception as e:
-            logger.error(f"Error deleting refresh token for user {user_id}: {str(e)}")
+            user_logger.error(f"Error deleting refresh token for user {user_id}: {str(e)}")
             raise
 
 
@@ -240,5 +247,5 @@ class SearchRefreshTokenRepository:
                 return None
 
         except Exception as e:
-            logger.error(f"Error searching refresh token: {str(e)}")
+            user_logger.error(f"Error searching refresh token: {str(e)}")
             raise

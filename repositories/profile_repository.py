@@ -7,7 +7,6 @@ from io import BytesIO
 
 from sqlalchemy import update
 from models.main_models import User as UserModel
-from repositories.user_repository import logger
 
 from utils.s3_yandex import s3
 import aioboto3

@@ -1067,72 +1067,72 @@ class CreateTableQueryRepository:
 
 
 
-# class CreateTableFromReadyComponentsRepository(TableValidationRepository):
-#     def __init__(self, db: AsyncSession):
-#         self.db = db
-#
-#     async def create_table_from_components(self, table_data, user_id: int):
-#         try:
-#
-#             table_data.tableName = table_data.tableName.lower().replace(' ', '_')
-#             # 1 - Validate table data
-#             self._validate_table_data(table_data)
-#
-#             # 2 - Check if the table already exists
-#             await CheckTableNameAvailabilityRepository.check_table_already_exists(table_data.tableName, self.db)
-#
-#             # 3 - Create the table definition
-#             table_id = await CreateTableDefinitionRepository.create_table_definition(table_data.tableStatus,table_data.description,table_data.tableName,table_data.category,self.db)
-#
-#             # 4 - Create the table columns
-#             await self._create_table_columns(table_data)
-#
-#             # 5 - Create the user table
-#             await CreateUserRepository.create_user_tables(user_id, table_id, self.db)
-#             await self.db.commit()
-#
-#             return {"message": f"Table '{table_data.tableName}' created successfully"}
-#
-#         except SQLAlchemyError as e:
-#             await self.db.rollback()
-#             raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-#         except Exception as e:
-#             await self.db.rollback()
-#             raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
-#
-#     def _validate_table_data(self, table_data):
-#         """Validate table data."""
-#         if not table_data.tableName:
-#             raise HTTPException(status_code=400, detail="Table name is required")
-#         if not TableValidationRepository.is_valid_name(table_data.tableName):
-#             raise HTTPException(status_code=400, detail="Table name must be alphanumeric and can include underscores.")
-#         if not table_data.columns:
-#             raise HTTPException(status_code=400, detail="At least one column is required")
-#         cols = [column.name for column in table_data.columns]
-#         TableValidationRepository.validate_column_names(cols)
-#
-#
-#     async def _create_table_columns(self, table_data):
-#         """Create the table columns dynamically."""
-#         type_mapping = {
-#             "string": String,
-#             "integer": Integer,
-#             "boolean": Boolean,
-#             "date": Date,
-#             "float": Float
-#         }
-#
-#         columns = [
-#             Column("id", Integer, primary_key=True, autoincrement=True)
-#         ]
-#         for col in table_data.columns:
-#             if col.type not in type_mapping:
-#                 raise HTTPException(status_code=400, detail=f"Invalid column type: {col.type}")
-#             columns.append(Column(col.name, type_mapping[col.type]))
-#
-#         metadata = MetaData()
-#         table = Table(table_data.tableName, metadata, *columns)
-#         await self.db.execute(CreateTable(table))
+class CreateTableFromReadyComponentsRepository(TableValidationRepository):
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def create_table_from_components(self, table_data, user_id: int):
+        try:
+
+            table_data.tableName = table_data.tableName.lower().replace(' ', '_')
+            # 1 - Validate table data
+            self._validate_table_data(table_data)
+
+            # 2 - Check if the table already exists
+            await CheckTableNameAvailabilityRepository.check_table_already_exists(table_data.tableName, self.db)
+
+            # 3 - Create the table definition
+            table_id = await CreateTableDefinitionRepository.create_table_definition(table_data.tableStatus,table_data.description,table_data.tableName,table_data.category,self.db)
+
+            # 4 - Create the table columns
+            await self._create_table_columns(table_data)
+
+            # 5 - Create the user table
+            await CreateUserRepository.create_user_tables(user_id, table_id, self.db)
+            await self.db.commit()
+
+            return {"message": f"Table '{table_data.tableName}' created successfully"}
+
+        except SQLAlchemyError as e:
+            await self.db.rollback()
+            raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        except Exception as e:
+            await self.db.rollback()
+            raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+    def _validate_table_data(self, table_data):
+        """Validate table data."""
+        if not table_data.tableName:
+            raise HTTPException(status_code=400, detail="Table name is required")
+        if not TableValidationRepository.is_valid_name(table_data.tableName):
+            raise HTTPException(status_code=400, detail="Table name must be alphanumeric and can include underscores.")
+        if not table_data.columns:
+            raise HTTPException(status_code=400, detail="At least one column is required")
+        cols = [column.name for column in table_data.columns]
+        TableValidationRepository.validate_column_names(cols)
+
+
+    async def _create_table_columns(self, table_data):
+        """Create the table columns dynamically."""
+        type_mapping = {
+            "string": String,
+            "integer": Integer,
+            "boolean": Boolean,
+            "date": Date,
+            "float": Float
+        }
+
+        columns = [
+            Column("id", Integer, primary_key=True, autoincrement=True)
+        ]
+        for col in table_data.columns:
+            if col.type not in type_mapping:
+                raise HTTPException(status_code=400, detail=f"Invalid column type: {col.type}")
+            columns.append(Column(col.name, type_mapping[col.type]))
+
+        metadata = MetaData()
+        table = Table(table_data.tableName, metadata, *columns)
+        await self.db.execute(CreateTable(table))
 
 
 class CreateTableRepository(TableValidationRepository):

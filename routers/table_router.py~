@@ -141,7 +141,7 @@ async def search_public_table(search_keyword: str, db: AsyncSession = Depends(ge
 
 
 
-# Checked - Logging
+# Checked
 @router.post("/createtablefromcomponents")
 async def create_table_from_components(table_data : TableCreateRequest, db: AsyncSession = Depends(get_db), user_info = Depends(TokenVerifyMiddleware.verify_access_token)):
     repository = CreateTableFromReadyComponentsRepository(db)

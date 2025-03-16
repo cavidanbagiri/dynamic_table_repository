@@ -13,7 +13,11 @@ from fastapi.responses import Response
 
 import logging
 
-logger = logging.getLogger(__name__)
+user_logger = logging.getLogger("user_logger")
+user_logger.setLevel(logging.INFO)
+user_handler = logging.FileHandler("logs/userlog.log")
+user_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s - [File: %(filename)s] - %(message)s'))
+user_logger.addHandler(user_handler)
 
 from dependecies.authorization import TokenVerifyMiddleware, VerifyRefreshTokenMiddleware
 from repositories.user_repository import UserRegisterRepository, UserLoginRepository, TokenRepository, \
@@ -39,7 +43,7 @@ async def register_user(
     except HTTPException as e:
         raise  # Re-raise the HTTPException to let FastAPI handle it
     except Exception as e:
-        logger.error(f"Unexpected error during registration: {str(e)}", exc_info=True)
+        user_logger.error(f"Unexpected error during registration: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Registration failed due to an unexpected error.")
 
 
@@ -79,7 +83,7 @@ async def refresh_token(response: Response, request: Request, db: AsyncSession =
         # Validate the refresh token and get user info
         user_info = await middleware.validate_refresh_token(request)
         if not user_info:
-            logger.warning("Invalid or expired refresh token")
+            user_logger.error("Invalid or expired refresh token")
             response.delete_cookie(key="refresh_token")
             raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
@@ -99,10 +103,10 @@ async def refresh_token(response: Response, request: Request, db: AsyncSession =
         }
 
     except HTTPException as e:
-        logger.error(f"Error refreshing token: {e.detail}")
+        # user_logger.error(f"Error refreshing token: {e.detail}")
         raise
     except Exception as e:
-        logger.error(f"Unexpected error refreshing token: {str(e)}", exc_info=True)
+        user_logger.error(f"Unexpected error refreshing token: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="An error occurred while refreshing the token")
 
 
@@ -122,24 +126,12 @@ async def logout(
         if not result:
             return JSONResponse(status_code=500, content={"message": "Error logging out user"})
         response.delete_cookie(key="refresh_token")
-        # Manually set the Set-Cookie header to delete the refresh token
-        # response.set_cookie(
-        #     key="refresh_token",
-        #     value="",  # Empty value
-        #     max_age=0,  # Expire immediately
-        #     expires=0,  # Expire immediately
-        #     path="/",  # Ensure this matches the cookie's original path
-        #     domain='localhost',
-        #     httponly=True,
-        #     secure=True,  # Ensure this is True in production
-        #     samesite="none",  # Allow cross-site requests
-        # )
 
         return{
             "message": "Logout successful"
         }
         # return JSONResponse(status_code=200, content={"message": "Logout successful"})
     except Exception as e:
-        logger.error(f"Error during logout: {str(e)}")
+        user_logger.error(f"Error during logout: {str(e)}")
         return JSONResponse(status_code=500, content={"message": "An error occurred during logout"})
 

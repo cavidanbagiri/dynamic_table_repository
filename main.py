@@ -1,14 +1,12 @@
 
-import logging
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
+# Ensure the logs directory exists
+os.makedirs("logs", exist_ok=True)
 
 # Import .env
 from dotenv import load_dotenv
