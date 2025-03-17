@@ -20,11 +20,13 @@ from sqlalchemy.sql.ddl import CreateTable
 from typing import List, Tuple
 
 from db.setup import SessionLocal
+from helpers.simplfy_error_message import SimplifyErrorMessageRepository
 
 from models.main_models import UserTable, TableDefinition, FavoriteTables
 
 import logging
 
+from repositories.table_create_repository import CreateTableQueryRepository
 
 # Set up logging
 logging.basicConfig(
@@ -36,22 +38,22 @@ logging.basicConfig(
 )
 
 
-class SimplifyErrorMessageRepository:
-
-    @staticmethod
-    def simplify_sql_error_message(error_message: str) -> str:
-        """
-        Simplify SQL error messages by extracting the relevant parts.
-        Returns a formatted error message in the format: <error_description> [SQL: <sql_query>]
-        """
-        # Extract the error description (between the first colon and "[SQL:")
-        if ": " in error_message and "[SQL:" in error_message:
-            error_description = error_message.split(": ")[1].split("[SQL:")[0].strip()
-            sql_query = error_message.split("[SQL:")[1].split("]")[0].strip()
-            return f"{error_description} [SQL: {sql_query}]"
-
-        # Fallback: Return the original error message if parsing fails
-        return error_message
+# class SimplifyErrorMessageRepository:
+#
+#     @staticmethod
+#     def simplify_sql_error_message(error_message: str) -> str:
+#         """
+#         Simplify SQL error messages by extracting the relevant parts.
+#         Returns a formatted error message in the format: <error_description> [SQL: <sql_query>]
+#         """
+#         # Extract the error description (between the first colon and "[SQL:")
+#         if ": " in error_message and "[SQL:" in error_message:
+#             error_description = error_message.split(": ")[1].split("[SQL:")[0].strip()
+#             sql_query = error_message.split("[SQL:")[1].split("]")[0].strip()
+#             return f"{error_description} [SQL: {sql_query}]"
+#
+#         # Fallback: Return the original error message if parsing fails
+#         return error_message
 
 
 
@@ -934,7 +936,7 @@ class CheckTableNameAvailabilityRepository:
         result = await session.execute(query, {"table_name": table_name})
         if result.scalar():
             logging.error(f"Table already exists: {table_name}")
-            raise HTTPException(status_code=400, detail="Table already exists.")
+            raise HTTPException(status_code=400, detail="Table already exists. {}".format(table_name))
 
 class CreateTableDefinitionRepository:
 
@@ -975,164 +977,6 @@ class CreateUserRepository:
         logging.debug(f"UserTable created for user {user_id} and table {table_id}.")
 
 
-
-
-class CreateTableQueryRepository:
-    def __init__(self, db: AsyncSession):
-        self.db = db
-
-    async def execute_create_table_query(self, query: str, user_info: dict) -> dict:
-        """
-        Execute a CREATE TABLE query and return the result.
-        """
-        # 1 - Validate the query type
-
-        table_definition_id : int = 0
-
-        query_type = GetQueryTypeRepository.get_query_type(query)
-        if query_type != "CREATE":
-            raise HTTPException(status_code=400, detail="Invalid query type for table creation")
-
-        # 2 - Extract the table name from the query
-        table_name = self._extract_table_name_from_query(query)
-        print(f'............................... {table_name}')
-        if not table_name:
-            raise HTTPException(status_code=400, detail="Could not extract table name from the query")
-
-        try:
-            # 3 - Check if the table already exists
-            if await CheckTableNameAvailabilityRepository.check_table_already_exists(table_name, self.db):
-                raise HTTPException(status_code=400, detail=f"Table '{table_name}' already exists")
-
-            # 4 - Create the table definition
-            table_definition_id = await CreateTableDefinitionRepository.create_table_definition('public', '', table_name, '', self.db)
-
-            # 5 - Create the user table
-            await CreateUserRepository.create_user_tables(user_info.get("id"), table_definition_id, self.db)
-
-
-            # Log the operation
-            self.log_operation(query, query_type, user_info)
-
-            # Execute the query
-            start_time = time.time()
-
-            result = await self.db.execute(text(query))
-            await self.db.commit()  # Commit the transaction for table creation
-        except Exception as e:
-            logging.error(f"Error creating table: {str(e)}")
-            if table_definition_id != 0:
-                await DeleteTableDefinitionRepository.delete_table_definition(table_definition_id)
-
-            await self.db.rollback()  # Rollback in case of error
-
-            # Simplify the error message
-            error_message = str(e)
-            simplified_error = SimplifyErrorMessageRepository.simplify_sql_error_message(error_message)
-
-            raise HTTPException(status_code=500, detail=simplified_error)
-
-        execution_time = time.time() - start_time
-        return {
-            "message": "CREATE TABLE operation successful",
-            "execution_time": execution_time.__round__(4),
-        }
-
-
-    # Get table name from query
-    def _extract_table_name_from_query(self, query: str) -> str:
-        """
-        Extract the table name from a CREATE TABLE query.
-        """
-        # Simple parsing to extract the table name (for demonstration purposes)
-        # This can be improved with a proper SQL parser for complex queries
-        query_lower = query.lower()
-        if "create table" not in query_lower:
-            return None
-
-        # Extract the table name after "CREATE TABLE"
-        table_name_start = query_lower.find("create table") + len("create table")
-        table_name_end = query_lower.find("(", table_name_start)
-        if table_name_end == -1:
-            return None
-
-        table_name = query[table_name_start:table_name_end].strip()
-        return table_name
-
-    def log_operation(self, query: str, query_type: str, user_info: dict):
-        """
-        Log the operation for auditing purposes.
-        """
-        logging.info(f"User {user_info.get('id')} performed {query_type} operation: {query}")
-
-
-
-# class CreateTableFromReadyComponentsRepository(TableValidationRepository):
-#     def __init__(self, db: AsyncSession):
-#         self.db = db
-#
-#     async def create_table_from_components(self, table_data, user_id: int):
-#         try:
-#
-#             table_data.tableName = table_data.tableName.lower().replace(' ', '_')
-#             # 1 - Validate table data
-#             self._validate_table_data(table_data)
-#
-#             # 2 - Check if the table already exists
-#             await CheckTableNameAvailabilityRepository.check_table_already_exists(table_data.tableName, self.db)
-#
-#             # 3 - Create the table definition
-#             table_id = await CreateTableDefinitionRepository.create_table_definition(table_data.tableStatus,table_data.description,table_data.tableName,table_data.category,self.db)
-#
-#             # 4 - Create the table columns
-#             await self._create_table_columns(table_data)
-#
-#             # 5 - Create the user table
-#             await CreateUserRepository.create_user_tables(user_id, table_id, self.db)
-#             await self.db.commit()
-#
-#             return {"message": f"Table '{table_data.tableName}' created successfully"}
-#
-#         except SQLAlchemyError as e:
-#             await self.db.rollback()
-#             raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-#         except Exception as e:
-#             await self.db.rollback()
-#             raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
-#
-#     def _validate_table_data(self, table_data):
-#         """Validate table data."""
-#         if not table_data.tableName:
-#             raise HTTPException(status_code=400, detail="Table name is required")
-#         if not TableValidationRepository.is_valid_name(table_data.tableName):
-#             raise HTTPException(status_code=400, detail="Table name must be alphanumeric and can include underscores.")
-#         if not table_data.columns:
-#             raise HTTPException(status_code=400, detail="At least one column is required")
-#         cols = [column.name for column in table_data.columns]
-#         TableValidationRepository.validate_column_names(cols)
-#
-#
-#     async def _create_table_columns(self, table_data):
-#         """Create the table columns dynamically."""
-#         type_mapping = {
-#             "string": String,
-#             "integer": Integer,
-#             "boolean": Boolean,
-#             "date": Date,
-#             "float": Float
-#         }
-#
-#         columns = [
-#             Column("id", Integer, primary_key=True, autoincrement=True)
-#         ]
-#         for col in table_data.columns:
-#             if col.type not in type_mapping:
-#                 raise HTTPException(status_code=400, detail=f"Invalid column type: {col.type}")
-#             columns.append(Column(col.name, type_mapping[col.type]))
-#
-#         metadata = MetaData()
-#         table = Table(table_data.tableName, metadata, *columns)
-#         await self.db.execute(CreateTable(table))
 
 
 class CreateTableRepository(TableValidationRepository):

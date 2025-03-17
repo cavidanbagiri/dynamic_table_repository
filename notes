@@ -1,0 +1,4 @@
+
+1 - DeleteTableDefinitionRepository - need to checjk inside of CreateTableFromReadyComponentsRepository class
+
+2 - GetQueryTypeRepository - l can delete from inside of create query
